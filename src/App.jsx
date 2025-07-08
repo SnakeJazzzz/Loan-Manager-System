@@ -3,10 +3,11 @@ import React, { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard';
 import LoansList from './pages/LoansList';
 import InvoicesList from './pages/InvoicesList';
+import PaymentsList from './pages/PaymentsList';
 import LoanForm from './components/LoanForm';
 import PaymentForm from './components/PaymentForm';
 import LoanDetails from './components/LoanDetails';
-import { calculateInterest, daysBetween } from './utils/loanCalculations';
+import { calculateInterest, daysBetween, formatCurrency } from './utils/loanCalculations';
 
 function App() {
   // State management
@@ -20,6 +21,7 @@ function App() {
   const [showLoanForm, setShowLoanForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [selectedLoan, setSelectedLoan] = useState(null);
+  const [editingLoan, setEditingLoan] = useState(null);
 
   // Load data from localStorage on mount
   useEffect(() => {
@@ -51,10 +53,25 @@ function App() {
     localStorage.setItem('interestEvents', JSON.stringify(interestEvents));
   }, [interestEvents]);
 
+  // Get next loan ID
+  const getNextLoanId = () => {
+    if (loans.length === 0) return 1;
+    const maxId = Math.max(...loans.map(loan => loan.id));
+    return maxId + 1;
+  };
+
+  // Check if a loan can accept payments
+  const canAcceptPayments = (loanId) => {
+    // Find all loans with lower IDs
+    const lowerIdLoans = loans.filter(loan => loan.id < loanId && loan.status === 'Open');
+    // Can only pay if all previous loans are paid
+    return lowerIdLoans.length === 0;
+  };
+
   // Loan management functions
   const createLoan = (loanData) => {
     const newLoan = {
-      id: Date.now(),
+      id: getNextLoanId(),
       ...loanData,
       originalPrincipal: loanData.amount,
       remainingPrincipal: loanData.amount,
@@ -70,6 +87,24 @@ function App() {
     setLoans(loans.map(loan => 
       loan.id === loanId ? { ...loan, ...updates } : loan
     ));
+  };
+
+  const editLoan = (loanData) => {
+    const loan = loans.find(l => l.id === editingLoan.id);
+    if (!loan) return;
+
+    // Update loan with new data
+    updateLoan(loan.id, {
+      debtorName: loanData.debtorName,
+      interestRate: loanData.interestRate,
+      startDate: loanData.startDate,
+      // Recalculate if amount changed
+      originalPrincipal: loanData.amount,
+      remainingPrincipal: loan.remainingPrincipal + (loanData.amount - loan.originalPrincipal)
+    });
+    
+    setEditingLoan(null);
+    alert('Préstamo actualizado exitosamente');
   };
 
   const deleteLoan = (loanId) => {
@@ -127,20 +162,77 @@ function App() {
     }
   };
 
+  // Delete payment and recalculate loan
+  const deletePayment = (paymentId) => {
+    if (!window.confirm('¿Estás seguro de eliminar este pago? Los montos se revertirán al préstamo.')) {
+      return;
+    }
+
+    const payment = payments.find(p => p.id === paymentId);
+    if (!payment) return;
+
+    // Revert the payment on the loan
+    const loan = loans.find(l => l.id === payment.loanId);
+    if (loan) {
+      updateLoan(loan.id, {
+        remainingPrincipal: loan.remainingPrincipal + payment.principalPaid,
+        accruedInterest: (loan.accruedInterest || 0) + payment.interestPaid,
+        status: 'Open' // Reopen the loan if it was paid
+      });
+
+      // Remove related invoices
+      setInvoices(invoices.filter(invoice => 
+        !(invoice.loanId === payment.loanId && invoice.date === payment.date)
+      ));
+    }
+
+    // Remove the payment
+    setPayments(payments.filter(p => p.id !== paymentId));
+    alert('Pago eliminado y montos revertidos al préstamo');
+  };
+
   // Payment processing
   const processPayment = (paymentData) => {
     const loan = loans.find(l => l.id === paymentData.loanId);
     if (!loan) return;
+
+    // First, calculate interest up to payment date
+    const lastAccrualDate = loan.lastInterestAccrual || loan.startDate;
+    const days = daysBetween(lastAccrualDate, paymentData.date);
+    
+    let currentAccruedInterest = loan.accruedInterest || 0;
+    let interestCalculated = 0;
+    
+    if (days > 0 && loan.remainingPrincipal > 0) {
+      interestCalculated = calculateInterest(loan.remainingPrincipal, loan.interestRate, days);
+      currentAccruedInterest += interestCalculated;
+      
+      // Create interest event
+      const interestEvent = {
+        id: Date.now() + Math.random(),
+        loanId: loan.id,
+        date: paymentData.date,
+        amount: interestCalculated,
+        days: days,
+        principal: loan.remainingPrincipal
+      };
+      setInterestEvents([...interestEvents, interestEvent]);
+    }
+
+    // Generate sequential payment ID
+    const paymentId = payments.length > 0 
+      ? Math.max(...payments.map(p => p.id)) + 1 
+      : 1;
 
     let remainingPayment = paymentData.amount;
     let interestPaid = 0;
     let principalPaid = 0;
 
     // First, pay off accrued interest
-    if (loan.accruedInterest > 0) {
-      if (remainingPayment >= loan.accruedInterest) {
-        interestPaid = loan.accruedInterest;
-        remainingPayment -= loan.accruedInterest;
+    if (currentAccruedInterest > 0) {
+      if (remainingPayment >= currentAccruedInterest) {
+        interestPaid = currentAccruedInterest;
+        remainingPayment -= currentAccruedInterest;
         
         // Generate invoice for interest paid
         const invoice = {
@@ -165,7 +257,7 @@ function App() {
 
     // Create payment record
     const payment = {
-      id: Date.now(),
+      id: paymentId,
       ...paymentData,
       interestPaid,
       principalPaid,
@@ -175,16 +267,19 @@ function App() {
 
     // Update loan
     const newRemainingPrincipal = loan.remainingPrincipal - principalPaid;
-    const newAccruedInterest = loan.accruedInterest - interestPaid;
+    const newAccruedInterest = currentAccruedInterest - interestPaid;
     
     updateLoan(loan.id, {
       remainingPrincipal: newRemainingPrincipal,
       accruedInterest: newAccruedInterest,
-      status: newRemainingPrincipal <= 0 ? 'Paid' : 'Open'
+      status: newRemainingPrincipal <= 0 ? 'Paid' : 'Open',
+      lastInterestAccrual: paymentData.date
     });
 
     setShowPaymentForm(false);
-    alert('Pago registrado exitosamente');
+    
+    // Show detailed payment breakdown
+    alert(`Pago registrado exitosamente:\n\nInterés calculado: ${formatCurrency(interestCalculated)}\nInterés pagado: ${formatCurrency(interestPaid)}\nPrincipal pagado: ${formatCurrency(principalPaid)}\n\nPrincipal restante: ${formatCurrency(newRemainingPrincipal)}\nInterés pendiente: ${formatCurrency(newAccruedInterest)}`);
   };
 
   return (
@@ -223,6 +318,16 @@ function App() {
               Préstamos
             </button>
             <button
+              onClick={() => setActiveTab('payments')}
+              className={`py-4 px-1 border-b-2 transition-colors ${
+                activeTab === 'payments' 
+                  ? 'border-blue-500 text-blue-600' 
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Pagos
+            </button>
+            <button
               onClick={() => setActiveTab('invoices')}
               className={`py-4 px-1 border-b-2 transition-colors ${
                 activeTab === 'invoices' 
@@ -253,7 +358,15 @@ function App() {
             loans={loans}
             onNewLoan={() => setShowLoanForm(true)}
             onDeleteLoan={deleteLoan}
+            onEditLoan={(loan) => setEditingLoan(loan)}
             onViewLoan={setSelectedLoan}
+          />
+        )}
+        {activeTab === 'payments' && (
+          <PaymentsList 
+            payments={payments}
+            loans={loans}
+            onDeletePayment={deletePayment}
           />
         )}
         {activeTab === 'invoices' && (
@@ -265,10 +378,14 @@ function App() {
       </main>
 
       {/* Forms and Modals */}
-      {showLoanForm && (
+      {(showLoanForm || editingLoan) && (
         <LoanForm 
-          onSubmit={createLoan}
-          onCancel={() => setShowLoanForm(false)}
+          onSubmit={editingLoan ? editLoan : createLoan}
+          onCancel={() => {
+            setShowLoanForm(false);
+            setEditingLoan(null);
+          }}
+          initialData={editingLoan}
         />
       )}
       {showPaymentForm && (
@@ -276,6 +393,7 @@ function App() {
           loans={loans}
           onSubmit={processPayment}
           onCancel={() => setShowPaymentForm(false)}
+          canAcceptPayments={canAcceptPayments}
         />
       )}
       {selectedLoan && (
