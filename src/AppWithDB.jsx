@@ -1,4 +1,4 @@
-// src/App.jsx
+// src/AppWithDB.jsx
 import React, { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard';
 import LoansList from './pages/LoansList';
@@ -8,13 +8,18 @@ import LoanForm from './components/LoanForm';
 import PaymentForm from './components/PaymentForm';
 import LoanDetails from './components/LoanDetails';
 import { calculateInterest, daysBetween, formatCurrency } from './utils/loanCalculations';
+import useDatabase from './hooks/useDatabase';
 
-function App() {
+function AppWithDB() {
+  // Database hook
+  const { isElectron, db } = useDatabase();
+  
   // State management
   const [loans, setLoans] = useState([]);
   const [payments, setPayments] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [interestEvents, setInterestEvents] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   
   // UI state
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -23,46 +28,31 @@ function App() {
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [editingLoan, setEditingLoan] = useState(null);
 
-  // Add this inside your App component, right after the state declarations
-useEffect(() => {
-  // Test Electron connection
-  if (window.electronAPI) {
-    window.electronAPI.testConnection().then(result => {
-      console.log('Electron connection test:', result);
-    });
-  }
-}, []);
-
-  // Load data from localStorage on mount
+  // Load data from database on mount
   useEffect(() => {
-    const savedLoans = localStorage.getItem('loans');
-    const savedPayments = localStorage.getItem('payments');
-    const savedInvoices = localStorage.getItem('invoices');
-    const savedInterestEvents = localStorage.getItem('interestEvents');
+    loadAllData();
+  }, [isElectron]);
 
-
-    if (savedLoans) setLoans(JSON.parse(savedLoans));
-    if (savedPayments) setPayments(JSON.parse(savedPayments));
-    if (savedInvoices) setInvoices(JSON.parse(savedInvoices));
-    if (savedInterestEvents) setInterestEvents(JSON.parse(savedInterestEvents));
-  }, []);
-
-  // Save data to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('loans', JSON.stringify(loans));
-  }, [loans]);
-
-  useEffect(() => {
-    localStorage.setItem('payments', JSON.stringify(payments));
-  }, [payments]);
-
-  useEffect(() => {
-    localStorage.setItem('invoices', JSON.stringify(invoices));
-  }, [invoices]);
-
-  useEffect(() => {
-    localStorage.setItem('interestEvents', JSON.stringify(interestEvents));
-  }, [interestEvents]);
+  const loadAllData = async () => {
+    setIsLoading(true);
+    try {
+      const [loansData, paymentsData, invoicesData, eventsData] = await Promise.all([
+        db.getLoans(),
+        db.getPayments(),
+        db.getInvoices(),
+        db.getInterestEvents()
+      ]);
+      
+      setLoans(loansData);
+      setPayments(paymentsData);
+      setInvoices(invoicesData);
+      setInterestEvents(eventsData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Get next loan ID
   const getNextLoanId = () => {
@@ -73,14 +63,12 @@ useEffect(() => {
 
   // Check if a loan can accept payments
   const canAcceptPayments = (loanId) => {
-    // Find all loans with lower IDs
     const lowerIdLoans = loans.filter(loan => loan.id < loanId && loan.status === 'Open');
-    // Can only pay if all previous loans are paid
     return lowerIdLoans.length === 0;
   };
 
   // Loan management functions
-  const createLoan = (loanData) => {
+  const createLoan = async (loanData) => {
     const newLoan = {
       id: getNextLoanId(),
       ...loanData,
@@ -90,49 +78,74 @@ useEffect(() => {
       status: 'Open',
       createdAt: new Date().toISOString()
     };
-    setLoans([...loans, newLoan]);
-    setShowLoanForm(false);
+    
+    try {
+      await db.saveLoan(newLoan);
+      setLoans([...loans, newLoan]);
+      setShowLoanForm(false);
+      alert('Préstamo creado exitosamente');
+    } catch (error) {
+      alert('Error al crear el préstamo: ' + error.message);
+    }
   };
 
-  const updateLoan = (loanId, updates) => {
-    setLoans(loans.map(loan => 
-      loan.id === loanId ? { ...loan, ...updates } : loan
-    ));
+  const updateLoan = async (loanId, updates) => {
+    try {
+      await db.updateLoan(loanId, updates);
+      setLoans(loans.map(loan => 
+        loan.id === loanId ? { ...loan, ...updates } : loan
+      ));
+    } catch (error) {
+      console.error('Error updating loan:', error);
+    }
   };
 
-  const editLoan = (loanData) => {
+  const editLoan = async (loanData) => {
     const loan = loans.find(l => l.id === editingLoan.id);
     if (!loan) return;
 
-    // Update loan with new data
-    updateLoan(loan.id, {
+    const updates = {
       debtorName: loanData.debtorName,
       interestRate: loanData.interestRate,
       startDate: loanData.startDate,
-      // Recalculate if amount changed
       originalPrincipal: loanData.amount,
       remainingPrincipal: loan.remainingPrincipal + (loanData.amount - loan.originalPrincipal)
-    });
-    
-    setEditingLoan(null);
-    alert('Préstamo actualizado exitosamente');
+    };
+
+    try {
+      await db.updateLoan(loan.id, updates);
+      setLoans(loans.map(l => 
+        l.id === loan.id ? { ...l, ...updates } : l
+      ));
+      setEditingLoan(null);
+      alert('Préstamo actualizado exitosamente');
+    } catch (error) {
+      alert('Error al actualizar el préstamo: ' + error.message);
+    }
   };
 
-  const deleteLoan = (loanId) => {
+  const deleteLoan = async (loanId) => {
     if (window.confirm('¿Estás seguro de eliminar este préstamo?')) {
-      setLoans(loans.filter(loan => loan.id !== loanId));
-      setPayments(payments.filter(payment => payment.loanId !== loanId));
-      setInvoices(invoices.filter(invoice => invoice.loanId !== loanId));
-      setInterestEvents(interestEvents.filter(event => event.loanId !== loanId));
+      try {
+        await db.deleteLoan(loanId);
+        setLoans(loans.filter(loan => loan.id !== loanId));
+        setPayments(payments.filter(payment => payment.loanId !== loanId));
+        setInvoices(invoices.filter(invoice => invoice.loanId !== loanId));
+        setInterestEvents(interestEvents.filter(event => event.loanId !== loanId));
+        alert('Préstamo eliminado exitosamente');
+      } catch (error) {
+        alert('Error al eliminar el préstamo: ' + error.message);
+      }
     }
   };
 
   // Interest calculation
-  const accrueInterestForAllLoans = () => {
+  const accrueInterestForAllLoans = async () => {
     const today = new Date().toISOString().split('T')[0];
     const newInterestEvents = [];
+    const loansToUpdate = [];
     
-    const updatedLoans = loans.map(loan => {
+    for (const loan of loans) {
       if (loan.status === 'Open') {
         const lastAccrualDate = loan.lastInterestAccrual || loan.startDate;
         const days = daysBetween(lastAccrualDate, today);
@@ -140,9 +153,8 @@ useEffect(() => {
         if (days > 0) {
           const interest = calculateInterest(loan.remainingPrincipal, loan.interestRate, days);
           
-          // Create interest event
           const interestEvent = {
-            id: Date.now() + Math.random(),
+            id: `${Date.now()}-${Math.random()}`,
             loanId: loan.id,
             date: today,
             amount: interest,
@@ -151,30 +163,43 @@ useEffect(() => {
           };
           
           newInterestEvents.push(interestEvent);
-          
-          // Update loan
-          return {
-            ...loan,
+          loansToUpdate.push({
+            id: loan.id,
             accruedInterest: (loan.accruedInterest || 0) + interest,
             lastInterestAccrual: today
-          };
+          });
         }
       }
-      return loan;
-    });
+    }
 
-    setLoans(updatedLoans);
-    setInterestEvents([...interestEvents, ...newInterestEvents]);
-    
     if (newInterestEvents.length > 0) {
-      alert(`Se calcularon intereses para ${newInterestEvents.length} préstamo(s)`);
+      try {
+        // Save all interest events
+        for (const event of newInterestEvents) {
+          await db.saveInterestEvent(event);
+        }
+        
+        // Update all loans
+        for (const update of loansToUpdate) {
+          await db.updateLoan(update.id, {
+            accruedInterest: update.accruedInterest,
+            lastInterestAccrual: update.lastInterestAccrual
+          });
+        }
+        
+        // Reload data to ensure consistency
+        await loadAllData();
+        alert(`Se calcularon intereses para ${newInterestEvents.length} préstamo(s)`);
+      } catch (error) {
+        alert('Error al calcular intereses: ' + error.message);
+      }
     } else {
       alert('No hay intereses nuevos para calcular');
     }
   };
 
   // Delete payment and recalculate loan
-  const deletePayment = (paymentId) => {
+  const deletePayment = async (paymentId) => {
     if (!window.confirm('¿Estás seguro de eliminar este pago? Los montos se revertirán al préstamo.')) {
       return;
     }
@@ -182,32 +207,34 @@ useEffect(() => {
     const payment = payments.find(p => p.id === paymentId);
     if (!payment) return;
 
-    // Revert the payment on the loan
     const loan = loans.find(l => l.id === payment.loanId);
     if (loan) {
-      updateLoan(loan.id, {
-        remainingPrincipal: loan.remainingPrincipal + payment.principalPaid,
-        accruedInterest: (loan.accruedInterest || 0) + payment.interestPaid,
-        status: 'Open' // Reopen the loan if it was paid
-      });
+      try {
+        // Update loan
+        await db.updateLoan(loan.id, {
+          remainingPrincipal: loan.remainingPrincipal + payment.principalPaid,
+          accruedInterest: (loan.accruedInterest || 0) + payment.interestPaid,
+          status: 'Open'
+        });
 
-      // Remove related invoices
-      setInvoices(invoices.filter(invoice => 
-        !(invoice.loanId === payment.loanId && invoice.date === payment.date)
-      ));
+        // Delete payment
+        await db.deletePayment(paymentId);
+
+        // Reload data
+        await loadAllData();
+        alert('Pago eliminado y montos revertidos al préstamo');
+      } catch (error) {
+        alert('Error al eliminar el pago: ' + error.message);
+      }
     }
-
-    // Remove the payment
-    setPayments(payments.filter(p => p.id !== paymentId));
-    alert('Pago eliminado y montos revertidos al préstamo');
   };
 
   // Payment processing
-  const processPayment = (paymentData) => {
+  const processPayment = async (paymentData) => {
     const loan = loans.find(l => l.id === paymentData.loanId);
     if (!loan) return;
 
-    // First, calculate interest up to payment date
+    // Calculate interest up to payment date
     const lastAccrualDate = loan.lastInterestAccrual || loan.startDate;
     const days = daysBetween(lastAccrualDate, paymentData.date);
     
@@ -218,16 +245,21 @@ useEffect(() => {
       interestCalculated = calculateInterest(loan.remainingPrincipal, loan.interestRate, days);
       currentAccruedInterest += interestCalculated;
       
-      // Create interest event
+      // Create and save interest event
       const interestEvent = {
-        id: Date.now() + Math.random(),
+        id: `${Date.now()}-${Math.random()}`,
         loanId: loan.id,
         date: paymentData.date,
         amount: interestCalculated,
         days: days,
         principal: loan.remainingPrincipal
       };
-      setInterestEvents([...interestEvents, interestEvent]);
+      
+      try {
+        await db.saveInterestEvent(interestEvent);
+      } catch (error) {
+        console.error('Error saving interest event:', error);
+      }
     }
 
     // Generate sequential payment ID
@@ -245,16 +277,21 @@ useEffect(() => {
         interestPaid = currentAccruedInterest;
         remainingPayment -= currentAccruedInterest;
         
-        // Generate invoice for interest paid
+        // Generate and save invoice for interest paid
         const invoice = {
-          id: Date.now(),
           loanId: loan.id,
           date: paymentData.date,
           amount: interestPaid,
           description: `Pago de intereses - Préstamo #${loan.id}`,
           type: 'interest'
         };
-        setInvoices([...invoices, invoice]);
+        
+        try {
+          const savedInvoice = await db.saveInvoice(invoice);
+          setInvoices([...invoices, savedInvoice]);
+        } catch (error) {
+          console.error('Error saving invoice:', error);
+        }
       } else {
         interestPaid = remainingPayment;
         remainingPayment = 0;
@@ -274,24 +311,46 @@ useEffect(() => {
       principalPaid,
       totalPaid: paymentData.amount
     };
-    setPayments([...payments, payment]);
 
-    // Update loan
-    const newRemainingPrincipal = loan.remainingPrincipal - principalPaid;
-    const newAccruedInterest = currentAccruedInterest - interestPaid;
-    
-    updateLoan(loan.id, {
-      remainingPrincipal: newRemainingPrincipal,
-      accruedInterest: newAccruedInterest,
-      status: newRemainingPrincipal <= 0 ? 'Paid' : 'Open',
-      lastInterestAccrual: paymentData.date
-    });
+    try {
+      // Save payment
+      await db.savePayment(payment);
 
-    setShowPaymentForm(false);
-    
-    // Show detailed payment breakdown
-    alert(`Pago registrado exitosamente:\n\nInterés calculado: ${formatCurrency(interestCalculated)}\nInterés pagado: ${formatCurrency(interestPaid)}\nPrincipal pagado: ${formatCurrency(principalPaid)}\n\nPrincipal restante: ${formatCurrency(newRemainingPrincipal)}\nInterés pendiente: ${formatCurrency(newAccruedInterest)}`);
+      // Update loan
+      const newRemainingPrincipal = loan.remainingPrincipal - principalPaid;
+      const newAccruedInterest = currentAccruedInterest - interestPaid;
+      
+      await db.updateLoan(loan.id, {
+        remainingPrincipal: newRemainingPrincipal,
+        accruedInterest: newAccruedInterest,
+        status: newRemainingPrincipal <= 0 ? 'Paid' : 'Open',
+        lastInterestAccrual: paymentData.date
+      });
+
+      // Reload all data to ensure consistency
+      await loadAllData();
+      
+      setShowPaymentForm(false);
+      
+      // Show detailed payment breakdown
+      alert(`Pago registrado exitosamente:\n\nInterés calculado: ${formatCurrency(interestCalculated)}\nInterés pagado: ${formatCurrency(interestPaid)}\nPrincipal pagado: ${formatCurrency(principalPaid)}\n\nPrincipal restante: ${formatCurrency(newRemainingPrincipal)}\nInterés pendiente: ${formatCurrency(newAccruedInterest)}`);
+    } catch (error) {
+      alert('Error al procesar el pago: ' + error.message);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-4">Cargando datos...</h2>
+          <p className="text-gray-600">
+            {isElectron ? 'Conectando con la base de datos SQLite...' : 'Cargando desde el navegador...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -299,7 +358,10 @@ useEffect(() => {
       <header className="bg-white shadow">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
-            <h1 className="text-3xl font-bold text-gray-900">Sistema de Gestión de Préstamos</h1>
+            <h1 className="text-3xl font-bold text-gray-900">
+              Sistema de Gestión de Préstamos
+              {isElectron && <span className="text-sm font-normal text-green-600 ml-2">(Base de datos conectada)</span>}
+            </h1>
           </div>
         </div>
       </header>
@@ -420,4 +482,4 @@ useEffect(() => {
   );
 }
 
-export default App;
+export default AppWithDB;
