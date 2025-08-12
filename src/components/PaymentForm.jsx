@@ -1,9 +1,9 @@
-// src/components/PaymentForm.jsx
+// src/components/PaymentForm.jsx - VERSIÓN CORREGIDA
 import React, { useState, useEffect } from 'react';
 import { formatCurrency, daysBetween, calculateInterest } from '../utils/loanCalculations';
 import { AlertCircle, Calculator } from 'lucide-react';
 
-const PaymentForm = ({ loans, onSubmit, onCancel, canAcceptPayments }) => {
+const PaymentForm = ({ loans, payments, onSubmit, onCancel, canAcceptPayments }) => {
   const [formData, setFormData] = useState({
     loanId: '',
     amount: '',
@@ -14,26 +14,42 @@ const PaymentForm = ({ loans, onSubmit, onCancel, canAcceptPayments }) => {
   const selectedLoan = openLoans.find(loan => loan.id === parseInt(formData.loanId));
   const canPaySelectedLoan = selectedLoan && canAcceptPayments(selectedLoan.id);
   
-  // Calculate interest that will be added
-  const [interestToCalculate, setInterestToCalculate] = useState(0);
+  // Calculate TOTAL interest up to payment date
+  const [totalInterestToDate, setTotalInterestToDate] = useState(0);
+  const [interestAlreadyPaid, setInterestAlreadyPaid] = useState(0);
+  const [currentAccruedInterest, setCurrentAccruedInterest] = useState(0);
   
   useEffect(() => {
     if (selectedLoan && formData.date) {
-      const lastAccrualDate = selectedLoan.lastInterestAccrual || selectedLoan.startDate;
-      const days = daysBetween(lastAccrualDate, formData.date);
+      // Calculate total interest from loan start to payment date
+      const loanStartDate = selectedLoan.startDate;
+      const paymentDate = formData.date;
+      const totalDays = daysBetween(loanStartDate, paymentDate);
       
-      if (days > 0) {
-        const interest = calculateInterest(selectedLoan.remainingPrincipal, selectedLoan.interestRate, days);
-        setInterestToCalculate(interest);
-      } else {
-        setInterestToCalculate(0);
+      let totalInterest = 0;
+      if (totalDays > 0) {
+        // Use originalPrincipal (not principal) for total interest calculation
+        totalInterest = calculateInterest(selectedLoan.originalPrincipal, selectedLoan.interestRate, totalDays);
       }
+      
+      // Calculate how much interest has already been paid
+      const previousPayments = payments.filter(p => 
+        p.loanId === selectedLoan.id && p.date <= paymentDate
+      );
+      const paidInterest = previousPayments.reduce((sum, p) => sum + p.interestPaid, 0);
+      
+      // Current accrued interest is the difference
+      const accruedInterest = Math.max(0, totalInterest - paidInterest);
+      
+      setTotalInterestToDate(totalInterest);
+      setInterestAlreadyPaid(paidInterest);
+      setCurrentAccruedInterest(accruedInterest);
     } else {
-      setInterestToCalculate(0);
+      setTotalInterestToDate(0);
+      setInterestAlreadyPaid(0);
+      setCurrentAccruedInterest(0);
     }
-  }, [selectedLoan, formData.date]);
-
-  const totalInterestToPay = (selectedLoan?.accruedInterest || 0) + interestToCalculate;
+  }, [selectedLoan, formData.date, payments]);
 
   const handleSubmit = () => {
     if (!formData.loanId || !formData.amount) {
@@ -102,22 +118,20 @@ const PaymentForm = ({ loans, onSubmit, onCancel, canAcceptPayments }) => {
                   </p>
                   <div className="space-y-1 text-xs text-blue-700">
                     <div className="flex justify-between">
-                      <span>Interés acumulado previo:</span>
-                      <span className="font-medium">{formatCurrency(selectedLoan.accruedInterest || 0)}</span>
+                      <span>Interés total desde inicio del préstamo:</span>
+                      <span className="font-medium">{formatCurrency(totalInterestToDate)}</span>
                     </div>
-                    {interestToCalculate > 0 && (
-                      <div className="flex justify-between">
-                        <span>Interés a calcular hasta {formData.date}:</span>
-                        <span className="font-medium">+{formatCurrency(interestToCalculate)}</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between">
+                      <span>Interés ya pagado anteriormente:</span>
+                      <span className="font-medium">-{formatCurrency(interestAlreadyPaid)}</span>
+                    </div>
                     <div className="flex justify-between pt-1 border-t border-blue-300">
-                      <span className="font-medium">Total interés a pagar:</span>
-                      <span className="font-bold">{formatCurrency(totalInterestToPay)}</span>
+                      <span className="font-medium">Interés pendiente de pago:</span>
+                      <span className="font-bold">{formatCurrency(currentAccruedInterest)}</span>
                     </div>
                   </div>
                   <p className="text-xs text-blue-600 mt-2">
-                    El pago se aplicará primero a los intereses ({formatCurrency(totalInterestToPay)})
+                    El pago se aplicará primero a los intereses ({formatCurrency(currentAccruedInterest)})
                   </p>
                 </div>
               </div>
@@ -137,10 +151,10 @@ const PaymentForm = ({ loans, onSubmit, onCancel, canAcceptPayments }) => {
             />
             {selectedLoan && canPaySelectedLoan && formData.amount && (
               <div className="mt-2 text-xs text-gray-600">
-                {parseFloat(formData.amount) > totalInterestToPay && (
-                  <p>• Se pagará {formatCurrency(totalInterestToPay)} de interés y {formatCurrency(parseFloat(formData.amount) - totalInterestToPay)} del principal</p>
+                {parseFloat(formData.amount) > currentAccruedInterest && (
+                  <p>• Se pagará {formatCurrency(currentAccruedInterest)} de interés y {formatCurrency(parseFloat(formData.amount) - currentAccruedInterest)} del principal</p>
                 )}
-                {parseFloat(formData.amount) <= totalInterestToPay && (
+                {parseFloat(formData.amount) <= currentAccruedInterest && (
                   <p>• Todo el pago se aplicará a intereses</p>
                 )}
               </div>
