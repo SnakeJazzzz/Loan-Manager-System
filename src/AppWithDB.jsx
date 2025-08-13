@@ -89,16 +89,6 @@ function AppWithDB() {
     }
   };
 
-  const updateLoan = async (loanId, updates) => {
-    try {
-      await db.updateLoan(loanId, updates);
-      setLoans(loans.map(loan => 
-        loan.id === loanId ? { ...loan, ...updates } : loan
-      ));
-    } catch (error) {
-      console.error('Error updating loan:', error);
-    }
-  };
 
   const editLoan = async (loanData) => {
     const loan = loans.find(l => l.id === editingLoan.id);
@@ -347,7 +337,7 @@ function AppWithDB() {
     await db.updateLoan(loan.id, {
       remainingPrincipal: newRemainingPrincipal,
       accruedInterest: newAccruedInterest,
-      status: newRemainingPrincipal <= 0 ? 'Paid' : 'Open',
+      status: (newRemainingPrincipal < 0.01 && newAccruedInterest < 0.01) ? 'Paid' : 'Open',
       lastInterestAccrual: paymentData.date
     });
 
@@ -361,6 +351,33 @@ function AppWithDB() {
   } catch (error) {
     alert('Error al procesar el pago: ' + error.message);
   }
+  };
+
+  // Verification function to fix existing loans with incorrect status
+  const verifyAndFixLoanStatuses = async () => {
+    let fixedCount = 0;
+    
+    for (const loan of loans) {
+      // Check if loan should be marked as 'Paid' but currently shows 'Open'
+      if (loan.status === 'Open' && 
+          loan.remainingPrincipal < 0.01 && 
+          (loan.accruedInterest || 0) < 0.01) {
+        
+        try {
+          await db.updateLoan(loan.id, { status: 'Paid' });
+          fixedCount++;
+        } catch (error) {
+          console.error(`Error fixing status for loan ${loan.id}:`, error);
+        }
+      }
+    }
+    
+    if (fixedCount > 0) {
+      await loadAllData();
+      alert(`Se corrigieron ${fixedCount} préstamo(s) con estado incorrecto`);
+    } else {
+      alert('No se encontraron préstamos con estados incorrectos');
+    }
   };
 
 
@@ -452,6 +469,7 @@ function AppWithDB() {
             onNewPayment={() => setShowPaymentForm(true)}
             onAccrueInterest={accrueInterestForAllLoans}
             onViewInvoices={() => setActiveTab('invoices')}
+            onVerifyLoanStatuses={verifyAndFixLoanStatuses}
           />
         )}
         {activeTab === 'loans' && (

@@ -84,9 +84,10 @@ const PaymentForm = ({ loans, payments, onSubmit, onCancel, canAcceptPayments })
               <option value="">Seleccionar préstamo...</option>
               {openLoans.map(loan => {
                 const canPay = canAcceptPayments(loan.id);
+                const totalOwed = loan.remainingPrincipal + (loan.accruedInterest || 0);
                 return (
                   <option key={loan.id} value={loan.id} disabled={!canPay}>
-                    #{loan.id} - {loan.debtorName} - {formatCurrency(loan.remainingPrincipal)} pendiente
+                    #{loan.id} - {loan.debtorName} - {formatCurrency(totalOwed)} pendiente
                     {!canPay && ' (Bloqueado - pague préstamos anteriores)'}
                   </option>
                 );

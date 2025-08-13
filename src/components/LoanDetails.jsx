@@ -9,6 +9,9 @@ const LoanDetails = ({ loan, payments, invoices, interestEvents, onClose }) => {
   const loanPayments = payments.filter(p => p.loanId === loan.id);
   const loanInvoices = invoices.filter(i => i.loanId === loan.id);
   const loanInterestEvents = interestEvents.filter(e => e.loanId === loan.id);
+  
+  // Calculate total paid from all payments
+  const totalPaid = loanPayments.reduce((sum, payment) => sum + payment.totalPaid, 0);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -61,7 +64,7 @@ const LoanDetails = ({ loan, payments, invoices, interestEvents, onClose }) => {
           <div>
             <p className="text-sm text-gray-500">Total Pagado</p>
             <p className="font-semibold">
-              {formatCurrency(loan.originalPrincipal - loan.remainingPrincipal)}
+              {formatCurrency(totalPaid)}
             </p>
           </div>
         </div>

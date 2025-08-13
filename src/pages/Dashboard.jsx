@@ -1,9 +1,9 @@
 // src/pages/Dashboard.jsx
 import React from 'react';
-import { FileText, DollarSign, Calendar, Plus } from 'lucide-react';
+import { FileText, DollarSign, Calendar, Plus, CheckCircle } from 'lucide-react';
 import { formatCurrency } from '../utils/loanCalculations';
 
-const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest, onViewInvoices }) => {
+const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest, onViewInvoices, onVerifyLoanStatuses }) => {
   const getTotalOutstandingPrincipal = () => {
     return loans
       .filter(loan => loan.status === 'Open')
@@ -59,7 +59,7 @@ const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest,
       {/* Quick Actions */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-semibold mb-4">Acciones Rápidas</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <button
             onClick={onNewLoan}
             className="flex items-center justify-center gap-2 bg-blue-500 text-white px-4 py-3 rounded-lg hover:bg-blue-600 transition-colors"
@@ -87,6 +87,13 @@ const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest,
           >
             <FileText size={20} />
             Ver Facturas
+          </button>
+          <button
+            onClick={onVerifyLoanStatuses}
+            className="flex items-center justify-center gap-2 bg-orange-500 text-white px-4 py-3 rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            <CheckCircle size={20} />
+            Verificar Estados
           </button>
         </div>
       </div>
