@@ -7,7 +7,8 @@ import PaymentsList from './pages/PaymentsList';
 import LoanForm from './components/LoanForm';
 import PaymentForm from './components/PaymentForm';
 import LoanDetails from './components/LoanDetails';
-import { calculateInterest, daysBetween, formatCurrency } from './utils/loanCalculations';
+//import { calculateInterest, daysBetween, formatCurrency } from './utils/loanCalculations';
+import { calculateInterest, daysBetween, formatCurrency, generateLoanNumber } from './utils/loanCalculations';
 import useDatabase from './hooks/useDatabase';
 
 function AppWithDB() {
@@ -69,14 +70,22 @@ function AppWithDB() {
 
   // Loan management functions
   const createLoan = async (loanData) => {
+    // Usar el ID del preview si está disponible, sino generar uno nuevo
+    const loanId = loanData.previewId || getNextLoanId();
+    
+    // Regenerar el loanNumber con el ID final para asegurar consistencia
+    const loanNumber = generateLoanNumber(loanId, loanData.startDate);
+    
     const newLoan = {
-      id: getNextLoanId(),
+      id: loanId,
       ...loanData,
       originalPrincipal: loanData.amount,
       remainingPrincipal: loanData.amount,
       accruedInterest: 0,
       status: 'Open',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      destiny: loanData.destiny || '',
+      loanNumber: loanNumber
     };
     
     try {
@@ -93,20 +102,18 @@ function AppWithDB() {
   const editLoan = async (loanData) => {
     const loan = loans.find(l => l.id === editingLoan.id);
     if (!loan) return;
-
-    const updates = {
-      debtorName: loanData.debtorName,
-      interestRate: loanData.interestRate,
-      startDate: loanData.startDate,
-      originalPrincipal: loanData.amount,
-      remainingPrincipal: loan.remainingPrincipal + (loanData.amount - loan.originalPrincipal)
-    };
-
+  
     try {
-      await db.updateLoan(loan.id, updates);
-      setLoans(loans.map(l => 
-        l.id === loan.id ? { ...l, ...updates } : l
-      ));
+      await db.updateLoan(loan.id, {
+        debtorName: loanData.debtorName,
+        interestRate: loanData.interestRate,
+        startDate: loanData.startDate,
+        destiny: loanData.destiny || '',
+        originalPrincipal: loanData.amount,
+        remainingPrincipal: loan.remainingPrincipal + (loanData.amount - loan.originalPrincipal)
+      });
+      
+      await loadAllData();
       setEditingLoan(null);
       alert('Préstamo actualizado exitosamente');
     } catch (error) {
@@ -381,6 +388,32 @@ function AppWithDB() {
   };
 
 
+  // Agregar después de la función verifyAndFixLoanStatuses (alrededor de la línea 391):
+const migrateLoanNumbers = async () => {
+  let migratedCount = 0;
+  
+  for (const loan of loans) {
+    if (!loan.loanNumber) {
+      const loanNumber = generateLoanNumber(loans.filter(l => l.loanNumber), loan.startDate);
+      
+      try {
+        await db.updateLoan(loan.id, { loanNumber });
+        migratedCount++;
+      } catch (error) {
+        console.error(`Error migrating loan ${loan.id}:`, error);
+      }
+    }
+  }
+  
+  if (migratedCount > 0) {
+    await loadAllData();
+    alert(`Se generaron números para ${migratedCount} préstamo(s) existente(s)`);
+  } else {
+    alert('Todos los préstamos ya tienen número asignado');
+  }
+};
+
+
 
 
 
@@ -470,6 +503,7 @@ function AppWithDB() {
             onAccrueInterest={accrueInterestForAllLoans}
             onViewInvoices={() => setActiveTab('invoices')}
             onVerifyLoanStatuses={verifyAndFixLoanStatuses}
+            onMigrateLoanNumbers={migrateLoanNumbers}  // Agregar esta línea
           />
         )}
         {activeTab === 'loans' && (
@@ -505,6 +539,7 @@ function AppWithDB() {
             setEditingLoan(null);
           }}
           initialData={editingLoan}
+          getNextLoanId={getNextLoanId}  // Agregar esta línea
         />
       )}
       {showPaymentForm && (

@@ -23,3 +23,20 @@ export const formatDate = (date) => {
   const [year, month, day] = date.split('-');
   return `${day}/${month}/${year}`;
 };
+
+
+
+// Función para formatear fecha para el número de préstamo
+export const formatDateForLoanNumber = (dateStr) => {
+  // Dividir la fecha en formato YYYY-MM-DD
+  const [year, month, day] = dateStr.split('-');
+  return `${day}${month}${year}`;
+};
+
+// Función para generar el número de préstamo
+// Función para generar el número de préstamo
+export const generateLoanNumber = (loanId, date) => {
+  const dateStr = formatDateForLoanNumber(date);
+  const idStr = String(loanId).padStart(2, '0');
+  return `${idStr}-${dateStr}`;
+};

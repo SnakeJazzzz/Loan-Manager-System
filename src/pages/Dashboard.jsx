@@ -1,9 +1,9 @@
 // src/pages/Dashboard.jsx
 import React from 'react';
-import { FileText, DollarSign, Calendar, Plus, CheckCircle } from 'lucide-react';
+import { FileText, DollarSign, Calendar, Plus, CheckCircle, RefreshCw } from 'lucide-react';
 import { formatCurrency } from '../utils/loanCalculations';
 
-const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest, onViewInvoices, onVerifyLoanStatuses }) => {
+const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest, onViewInvoices, onVerifyLoanStatuses, onMigrateLoanNumbers }) => {
   const getTotalOutstandingPrincipal = () => {
     return loans
       .filter(loan => loan.status === 'Open')
@@ -95,6 +95,8 @@ const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest,
             <CheckCircle size={20} />
             Verificar Estados
           </button>
+
+
         </div>
       </div>
     </div>

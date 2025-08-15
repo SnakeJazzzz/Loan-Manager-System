@@ -16,15 +16,21 @@ const LoanDetails = ({ loan, payments, invoices, interestEvents, onClose }) => {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+
+      
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-bold">Detalles del Préstamo #{loan.id}</h3>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            <X size={24} />
-          </button>
+  <div>
+    <h3 className="text-xl font-bold">Detalles del Préstamo</h3>
+    <p className="text-sm text-gray-600 mt-1">Número: {loan.loanNumber || `#${loan.id}`}</p>
+  </div>
+  <button
+    onClick={onClose}
+    className="text-gray-500 hover:text-gray-700"
+  >
+    <X size={24} />
+  </button>
         </div>
+
 
         <div className="grid grid-cols-2 gap-4 mb-6">
           <div>
@@ -61,12 +67,29 @@ const LoanDetails = ({ loan, payments, invoices, interestEvents, onClose }) => {
             <p className="text-sm text-gray-500">Fecha de Inicio</p>
             <p className="font-semibold">{formatDate(loan.startDate)}</p>
           </div>
+
+
+          {loan.destiny && (
+<div className="col-span-2">
+    <p className="text-sm text-gray-500">Destino del Préstamo</p>
+    <p className="font-semibold">{loan.destiny}</p>
+  </div>
+          )}
+
+
           <div>
             <p className="text-sm text-gray-500">Total Pagado</p>
             <p className="font-semibold">
               {formatCurrency(totalPaid)}
             </p>
           </div>
+          {loan.destiny && (
+            <div className="col-span-2">
+    <p className="text-sm text-gray-500">Destino del Préstamo</p>
+    <p className="font-semibold">{loan.destiny}</p>
+            </div>
+          )}
+
         </div>
 
         <div className="border-t pt-6">

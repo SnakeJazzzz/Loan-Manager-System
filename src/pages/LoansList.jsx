@@ -42,8 +42,10 @@ const LoansList = ({ loans, onNewLoan, onDeleteLoan, onEditLoan, onViewLoan }) =
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Número</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deudor</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destino</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal Original</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal Restante</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interés Acumulado</th>
@@ -59,50 +61,59 @@ const LoansList = ({ loans, onNewLoan, onDeleteLoan, onEditLoan, onViewLoan }) =
                   </td>
                 </tr>
               ) : (
-                sortedLoans.map(loan => {
-                  const isCurrentLoan = firstUnpaidLoan && loan.id === firstUnpaidLoan.id;
-                  return (
-                    <tr key={loan.id} className={`hover:bg-gray-50 ${isCurrentLoan ? 'bg-green-50' : ''}`}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold">#{loan.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{loan.debtorName}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">{formatCurrency(loan.originalPrincipal)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">{formatCurrency(loan.remainingPrincipal)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">{formatCurrency(loan.accruedInterest || 0)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          loan.status === 'Open' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {loan.status === 'Open' ? 'Abierto' : 'Pagado'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => onViewLoan(loan)}
-                            className="text-blue-600 hover:text-blue-900"
-                            title="Ver detalles"
-                          >
-                            <Eye size={18} />
-                          </button>
-                          <button
-                            onClick={() => onEditLoan(loan)}
-                            className="text-green-600 hover:text-green-900"
-                            title="Editar"
-                          >
-                            <Edit size={18} />
-                          </button>
-                          <button
-                            onClick={() => onDeleteLoan(loan.id)}
-                            className="text-red-600 hover:text-red-900"
-                            title="Eliminar"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                sortedLoans.map(loan => (
+                  <tr key={loan.id} className={loan.status === 'Open' && loan.id !== firstUnpaidLoan?.id ? 'opacity-60' : ''}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      {loan.loanNumber || `#${loan.id}`}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{loan.debtorName}</td>
+                    <td className="px-6 py-4 text-sm">
+                      <span className="truncate block max-w-[150px]" title={loan.destiny}>
+                        {loan.destiny || '-'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{formatCurrency(loan.originalPrincipal)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{formatCurrency(loan.remainingPrincipal)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{formatCurrency(loan.accruedInterest || 0)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        loan.status === 'Open' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {loan.status === 'Open' ? 'Abierto' : 'Pagado'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => onViewLoan(loan)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Ver detalles"
+                        >
+                          <Eye size={16} />
+                        </button>
+                        <button
+                          onClick={() => onEditLoan(loan)}
+                          className="text-yellow-600 hover:text-yellow-900"
+                          title="Editar"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => onDeleteLoan(loan.id)}
+                          className="text-red-600 hover:text-red-900"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+
+
+
+
+
               )}
             </tbody>
           </table>

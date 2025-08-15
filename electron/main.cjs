@@ -37,7 +37,9 @@ function createTables() {
       status TEXT DEFAULT 'Open',
       startDate TEXT NOT NULL,
       lastInterestAccrual TEXT,
-      createdAt TEXT NOT NULL
+      createdAt TEXT NOT NULL,
+      destiny TEXT,
+      loanNumber TEXT UNIQUE
     )`, (err) => {
       if (err) console.error('Error creating loans table:', err);
       else console.log('Loans table ready');
@@ -141,19 +143,21 @@ ipcMain.handle('db:getLoans', async () => {
     });
   });
 });
-
+// Reemplaza con:
 ipcMain.handle('db:createLoan', async (event, loan) => {
   return new Promise((resolve, reject) => {
     const stmt = db.prepare(`
       INSERT INTO loans (id, debtorName, originalPrincipal, remainingPrincipal, 
-        interestRate, accruedInterest, status, startDate, lastInterestAccrual, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        interestRate, accruedInterest, status, startDate, lastInterestAccrual, createdAt,
+        destiny, loanNumber)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     stmt.run(
       loan.id, loan.debtorName, loan.originalPrincipal, loan.remainingPrincipal,
       loan.interestRate, loan.accruedInterest || 0, loan.status, loan.startDate, 
       loan.lastInterestAccrual || null, loan.createdAt,
+      loan.destiny || null, loan.loanNumber || null,
       function(err) {
         if (err) reject(err);
         else resolve({ id: loan.id, success: true });
