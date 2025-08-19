@@ -188,6 +188,37 @@ const useDatabase = () => {
       }
     },
 
+    // ========== ACCOUNT TRANSACTIONS ==========
+    getAccountTransactions: async () => {
+      if (isElectron && window.electronAPI) {
+        try {
+          return await window.electronAPI.getAccountTransactions();
+        } catch (error) {
+          console.error('Error getting account transactions from database:', error);
+          return [];
+        }
+      } else {
+        const data = localStorage.getItem('accountTransactions');
+        return data ? JSON.parse(data) : [];
+      }
+    },
+    
+    saveAccountTransaction: async (transaction) => {
+      if (isElectron && window.electronAPI) {
+        try {
+          return await window.electronAPI.createAccountTransaction(transaction);
+        } catch (error) {
+          console.error('Error saving account transaction to database:', error);
+          throw error;
+        }
+      } else {
+        const transactions = JSON.parse(localStorage.getItem('accountTransactions') || '[]');
+        transactions.push(transaction);
+        localStorage.setItem('accountTransactions', JSON.stringify(transactions));
+        return { success: true };
+      }
+    },
+
     // ========== BULK OPERATIONS ==========
     saveAll: async (loans, payments, invoices, interestEvents) => {
       if (isElectron && window.electronAPI) {

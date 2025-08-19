@@ -7,7 +7,10 @@ import PaymentsList from './pages/PaymentsList';
 import LoanForm from './components/LoanForm';
 import PaymentForm from './components/PaymentForm';
 import LoanDetails from './components/LoanDetails';
-//import { calculateInterest, daysBetween, formatCurrency } from './utils/loanCalculations';
+
+import AccountHistory from './pages/AccountHistory';
+import TransactionForm from './components/TransactionForm';
+
 import { calculateInterest, daysBetween, formatCurrency, generateLoanNumber } from './utils/loanCalculations';
 import useDatabase from './hooks/useDatabase';
 
@@ -22,12 +25,18 @@ function AppWithDB() {
   const [interestEvents, setInterestEvents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
+  // Account balance state
+  const [accountTransactions, setAccountTransactions] = useState([]);
+  const [currentBalance, setCurrentBalance] = useState(0);
+  
   // UI state
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showLoanForm, setShowLoanForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [editingLoan, setEditingLoan] = useState(null);
+
+  const [showTransactionForm, setShowTransactionForm] = useState(false);
 
   // Load data from database on mount
   useEffect(() => {
@@ -37,17 +46,25 @@ function AppWithDB() {
   const loadAllData = async () => {
     setIsLoading(true);
     try {
-      const [loansData, paymentsData, invoicesData, eventsData] = await Promise.all([
+      const [loansData, paymentsData, invoicesData, eventsData, transactionsData] = await Promise.all([
         db.getLoans(),
         db.getPayments(),
         db.getInvoices(),
-        db.getInterestEvents()
+        db.getInterestEvents(),
+        db.getAccountTransactions ? db.getAccountTransactions() : Promise.resolve([])
       ]);
       
       setLoans(loansData);
       setPayments(paymentsData);
       setInvoices(invoicesData);
       setInterestEvents(eventsData);
+      setAccountTransactions(transactionsData);
+      
+      // Calculate current balance from transactions
+      const balance = transactionsData.length > 0 
+        ? transactionsData[transactionsData.length - 1].balance || 0 
+        : 0;
+      setCurrentBalance(balance);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -90,10 +107,29 @@ function AppWithDB() {
     
     try {
       await db.saveLoan(newLoan);
-      setLoans([...loans, newLoan]);
+      
+      // Create account transaction for loan creation
+      const newBalance = currentBalance - loanData.amount;
+      const transaction = {
+        balance: newBalance,
+        transaction_type: 'loan_out',
+        transaction_amount: -loanData.amount,
+        related_loan_id: loanId,
+        description: `Préstamo ${loanNumber} - ${loanData.debtorName}`,
+        date: loanData.startDate,
+        createdAt: new Date().toISOString()
+      };
+      
+      console.log('Saving account transaction:', transaction); // DEBUG
+      
+      const result = await db.saveAccountTransaction(transaction);
+      console.log('Transaction save result:', result); // DEBUG
+      
+      await loadAllData();
       setShowLoanForm(false);
       alert('Préstamo creado exitosamente');
     } catch (error) {
+      console.error('Full error:', error); // DEBUG
       alert('Error al crear el préstamo: ' + error.message);
     }
   };
@@ -348,6 +384,23 @@ function AppWithDB() {
       lastInterestAccrual: paymentData.date
     });
 
+    // Create account transaction for payment received
+    const newBalance = currentBalance + paymentData.amount;
+    const paymentTransaction = {
+      balance: newBalance,
+      transaction_type: 'payment_in',
+      transaction_amount: paymentData.amount,
+      related_loan_id: loan.id,
+      description: `Pago recibido - Préstamo ${loan.loanNumber || `#${loan.id}`} - ${loan.debtorName}`,
+      date: paymentData.date,
+      createdAt: new Date().toISOString()
+    };
+    
+    console.log('Saving payment transaction:', paymentTransaction); // DEBUG
+    
+    const paymentResult = await db.saveAccountTransaction(paymentTransaction);
+    console.log('Payment transaction save result:', paymentResult); // DEBUG
+
     // Reload all data to ensure consistency
     await loadAllData();
     
@@ -413,7 +466,30 @@ const migrateLoanNumbers = async () => {
   }
 };
 
-
+const processManualTransaction = async (transactionData) => {
+  const isDeposit = transactionData.type === 'deposit';
+  const transactionAmount = isDeposit ? transactionData.amount : -transactionData.amount;
+  const newBalance = currentBalance + transactionAmount;
+  
+  const transaction = {
+    balance: newBalance,
+    transaction_type: transactionData.type,
+    transaction_amount: transactionAmount,
+    related_loan_id: null,
+    description: transactionData.description,
+    date: transactionData.date,
+    createdAt: new Date().toISOString()
+  };
+  
+  try {
+    await db.saveAccountTransaction(transaction);
+    await loadAllData();
+    setShowTransactionForm(false);
+    alert(`${isDeposit ? 'Depósito' : 'Retiro'} registrado exitosamente`);
+  } catch (error) {
+    alert('Error al registrar la transacción: ' + error.message);
+  }
+};
 
 
 
@@ -488,6 +564,20 @@ const migrateLoanNumbers = async () => {
             >
               Facturas
             </button>
+
+
+            <button
+  onClick={() => setActiveTab('account')}
+  className={`py-4 px-1 border-b-2 transition-colors ${
+    activeTab === 'account' 
+      ? 'border-blue-500 text-blue-600' 
+      : 'border-transparent text-gray-500 hover:text-gray-700'
+  }`}
+>
+  Cuenta
+            </button>
+
+
           </div>
         </div>
       </nav>
@@ -498,12 +588,13 @@ const migrateLoanNumbers = async () => {
           <Dashboard 
             loans={loans}
             invoices={invoices}
+            currentBalance={currentBalance}
             onNewLoan={() => setShowLoanForm(true)}
             onNewPayment={() => setShowPaymentForm(true)}
             onAccrueInterest={accrueInterestForAllLoans}
             onViewInvoices={() => setActiveTab('invoices')}
             onVerifyLoanStatuses={verifyAndFixLoanStatuses}
-            onMigrateLoanNumbers={migrateLoanNumbers}  // Agregar esta línea
+            onViewAccount={() => setActiveTab('account')}  // Agregar esta línea
           />
         )}
         {activeTab === 'loans' && (
@@ -528,6 +619,17 @@ const migrateLoanNumbers = async () => {
             loans={loans}
           />
         )}
+
+
+        {activeTab === 'account' && (
+  <AccountHistory 
+    transactions={accountTransactions}
+    onNewTransaction={() => setShowTransactionForm(true)}
+  />
+        )}
+
+
+
       </main>
 
       {/* Forms and Modals */}
@@ -560,6 +662,15 @@ const migrateLoanNumbers = async () => {
           onClose={() => setSelectedLoan(null)}
         />
       )}
+
+
+        {showTransactionForm && (
+  <TransactionForm 
+    onSubmit={processManualTransaction}
+    onCancel={() => setShowTransactionForm(false)}
+    currentBalance={currentBalance}
+  />
+        )}
     </div>
   );
 }

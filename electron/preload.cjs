@@ -22,4 +22,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Interest Events
   getInterestEvents: () => ipcRenderer.invoke('db:getInterestEvents'),
   createInterestEvent: (event) => ipcRenderer.invoke('db:createInterestEvent', event),
+  
+  // Account Transactions
+  getAccountTransactions: () => ipcRenderer.invoke('db:getAccountTransactions'),
+  createAccountTransaction: (transaction) => ipcRenderer.invoke('db:createAccountTransaction', transaction),
 });

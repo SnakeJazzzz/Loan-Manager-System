@@ -1,9 +1,9 @@
 // src/pages/Dashboard.jsx
 import React from 'react';
-import { FileText, DollarSign, Calendar, Plus, CheckCircle, RefreshCw } from 'lucide-react';
+import { FileText, DollarSign, Calendar, Plus, CheckCircle, CreditCard } from 'lucide-react';
 import { formatCurrency } from '../utils/loanCalculations';
 
-const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest, onViewInvoices, onVerifyLoanStatuses, onMigrateLoanNumbers }) => {
+const Dashboard = ({ loans, invoices, currentBalance, onNewLoan, onNewPayment, onAccrueInterest, onViewInvoices, onVerifyLoanStatuses, onViewAccount }) => {
   const getTotalOutstandingPrincipal = () => {
     return loans
       .filter(loan => loan.status === 'Open')
@@ -21,7 +21,7 @@ const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest,
       <h2 className="text-2xl font-bold mb-6">Panel de Control</h2>
       
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-500">Total Préstamos</span>
@@ -45,6 +45,19 @@ const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest,
             <Calendar className="text-gray-400" size={20} />
           </div>
           <p className="text-2xl font-bold">{formatCurrency(getTotalAccruedInterest())}</p>
+        </div>
+        
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-gray-500">Saldo Actual</span>
+            <DollarSign className="text-gray-400" size={20} />
+          </div>
+          <p className={`text-2xl font-bold ${currentBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {formatCurrency(Math.abs(currentBalance || 0))}
+          </p>
+          <p className="text-sm text-gray-500">
+            {currentBalance >= 0 ? 'Disponible' : 'Sobregiro'}
+          </p>
         </div>
         
         <div className="bg-white p-6 rounded-lg shadow">
@@ -96,6 +109,14 @@ const Dashboard = ({ loans, invoices, onNewLoan, onNewPayment, onAccrueInterest,
             Verificar Estados
           </button>
 
+
+          <button
+  onClick={onViewAccount}
+  className="flex items-center justify-center gap-2 bg-indigo-500 text-white px-4 py-3 rounded-lg hover:bg-indigo-600 transition-colors"
+>
+  <CreditCard size={20} />
+  Ver Cuenta
+          </button>
 
         </div>
       </div>

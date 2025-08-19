@@ -86,6 +86,22 @@ function createTables() {
       if (err) console.error('Error creating interestEvents table:', err);
       else console.log('InterestEvents table ready');
     });
+    
+    // Account Balance table
+    db.run(`CREATE TABLE IF NOT EXISTS account_balance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      balance REAL NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_amount REAL NOT NULL,
+      related_loan_id INTEGER,
+      description TEXT,
+      date TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (related_loan_id) REFERENCES loans(id)
+    )`, (err) => {
+      if (err) console.error('Error creating account_balance table:', err);
+      else console.log('Account Balance table ready');
+    });
   });
 }
 
@@ -288,6 +304,37 @@ ipcMain.handle('db:createInterestEvent', async (event, interestEvent) => {
       function(err) {
         if (err) reject(err);
         else resolve({ success: true });
+      }
+    );
+    stmt.finalize();
+  });
+});
+
+// Account Transactions handlers
+ipcMain.handle('db:getAccountTransactions', async () => {
+  return new Promise((resolve, reject) => {
+    db.all('SELECT * FROM account_balance ORDER BY date ASC, id ASC', (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+});
+
+ipcMain.handle('db:createAccountTransaction', async (_, transaction) => {
+  return new Promise((resolve, reject) => {
+    const stmt = db.prepare(`
+      INSERT INTO account_balance (balance, transaction_type, transaction_amount, 
+        related_loan_id, description, date, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(
+      transaction.balance, transaction.transaction_type, transaction.transaction_amount,
+      transaction.related_loan_id || null, transaction.description, transaction.date, 
+      transaction.createdAt,
+      function(err) {
+        if (err) reject(err);
+        else resolve({ id: this.lastID, success: true });
       }
     );
     stmt.finalize();
