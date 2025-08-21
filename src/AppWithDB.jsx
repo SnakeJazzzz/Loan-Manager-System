@@ -38,10 +38,130 @@ function AppWithDB() {
 
   const [showTransactionForm, setShowTransactionForm] = useState(false);
 
+  const [lastDailyCalculation, setLastDailyCalculation] = useState(
+    localStorage.getItem('lastDailyCalculation') || null
+  );
+
   // Load data from database on mount
   useEffect(() => {
     loadAllData();
   }, [isElectron]);
+
+
+// Add this useEffect for automatic daily interest calculation
+  useEffect(() => {
+  const performDailyInterestCalculation = async () => {
+    // Only run if we have loans and database is ready
+    if (!isLoading && loans.length > 0 && db) {
+      const today = new Date().toISOString().split('T')[0];
+      const lastCalc = localStorage.getItem('lastDailyCalculation');
+      
+      // Check if we already calculated today
+      if (lastCalc === today) {
+        console.log('Interest already calculated for today:', today);
+        return;
+      }
+      
+      console.log('Running daily interest calculation for:', today);
+      
+      const openLoans = loans.filter(loan => loan.status === 'Open');
+      const interestEventsToSave = [];
+      const loansToUpdate = [];
+      
+      for (const loan of openLoans) {
+        // Find last payment or use last interest accrual
+        const loanPayments = payments.filter(p => p.loanId === loan.id);
+        const lastPayment = loanPayments.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+        
+        const lastCalculationDate = lastPayment 
+          ? lastPayment.date 
+          : (loan.lastInterestAccrual || loan.startDate);
+        
+        // Only calculate if we haven't calculated up to today yet
+        if (lastCalculationDate < today) {
+          const days = daysBetween(lastCalculationDate, today);
+          
+          if (days > 0 && loan.remainingPrincipal > 0) {
+            const interest = calculateInterest(
+              loan.remainingPrincipal,
+              loan.interestRate,
+              days
+            );
+            
+            // Create interest event
+            const interestEvent = {
+              id: `daily-${Date.now()}-${loan.id}`,
+              loanId: loan.id,
+              date: today,
+              amount: interest,
+              days: days,
+              principal: loan.remainingPrincipal,
+              type: 'daily_accrual',
+              description: `Interés diario acumulado del ${lastCalculationDate} al ${today}`
+            };
+            
+            interestEventsToSave.push(interestEvent);
+            
+            loansToUpdate.push({
+              id: loan.id,
+              accruedInterest: (loan.accruedInterest || 0) + interest,
+              lastInterestAccrual: today
+            });
+            
+            console.log(`Loan ${loan.loanNumber}: Calculated ${days} days of interest: ${interest.toFixed(2)}`);
+          }
+        }
+      }
+      
+      // Save all updates
+      if (interestEventsToSave.length > 0) {
+        try {
+          console.log(`Saving ${interestEventsToSave.length} interest events...`);
+          
+          // Save interest events
+          for (const event of interestEventsToSave) {
+            await db.saveInterestEvent(event);
+          }
+          
+          // Update loans
+          for (const update of loansToUpdate) {
+            await db.updateLoan(update.id, {
+              accruedInterest: update.accruedInterest,
+              lastInterestAccrual: update.lastInterestAccrual
+            });
+          }
+          
+          // Mark today as calculated
+          localStorage.setItem('lastDailyCalculation', today);
+          setLastDailyCalculation(today);
+          
+          // Reload data to show updates
+          await loadAllData();
+          
+          console.log(`Daily interest calculation complete. Updated ${loansToUpdate.length} loans.`);
+          
+          // Optional: Show a subtle notification instead of alert
+          // You could use a toast notification library here
+          if (loansToUpdate.length > 0) {
+            console.log(`✓ Intereses actualizados automáticamente para ${loansToUpdate.length} préstamo(s)`);
+          }
+          
+        } catch (error) {
+          console.error('Error in daily interest calculation:', error);
+        }
+      } else {
+        // Still mark today as checked even if no updates needed
+        localStorage.setItem('lastDailyCalculation', today);
+        setLastDailyCalculation(today);
+        console.log('No interest updates needed today');
+      }
+    }
+  };
+  
+  // Run the calculation
+  performDailyInterestCalculation();
+  }, [isLoading, loans.length, db]); // Dependencies ensure it runs when data is ready
+
 
   const loadAllData = async () => {
     setIsLoading(true);
@@ -167,64 +287,6 @@ function AppWithDB() {
     }
   };
 
-  // Interest calculation
-  const accrueInterestForAllLoans = async () => {
-    const today = new Date().toISOString().split('T')[0];
-    const newInterestEvents = [];
-    const loansToUpdate = [];
-    
-    for (const loan of loans) {
-      if (loan.status === 'Open') {
-        const lastAccrualDate = loan.lastInterestAccrual || loan.startDate;
-        const days = daysBetween(lastAccrualDate, today);
-        
-        if (days > 0) {
-          const interest = calculateInterest(loan.remainingPrincipal, loan.interestRate, days);
-          
-          const interestEvent = {
-            id: `${Date.now()}-${Math.random()}`,
-            loanId: loan.id,
-            date: today,
-            amount: interest,
-            days: days,
-            principal: loan.remainingPrincipal
-          };
-          
-          newInterestEvents.push(interestEvent);
-          loansToUpdate.push({
-            id: loan.id,
-            accruedInterest: (loan.accruedInterest || 0) + interest,
-            lastInterestAccrual: today
-          });
-        }
-      }
-    }
-
-    if (newInterestEvents.length > 0) {
-      try {
-        // Save all interest events
-        for (const event of newInterestEvents) {
-          await db.saveInterestEvent(event);
-        }
-        
-        // Update all loans
-        for (const update of loansToUpdate) {
-          await db.updateLoan(update.id, {
-            accruedInterest: update.accruedInterest,
-            lastInterestAccrual: update.lastInterestAccrual
-          });
-        }
-        
-        // Reload data to ensure consistency
-        await loadAllData();
-        alert(`Se calcularon intereses para ${newInterestEvents.length} préstamo(s)`);
-      } catch (error) {
-        alert('Error al calcular intereses: ' + error.message);
-      }
-    } else {
-      alert('No hay intereses nuevos para calcular');
-    }
-  };
 
   // Delete payment and recalculate loan
   const deletePayment = async (paymentId) => {
@@ -257,45 +319,102 @@ function AppWithDB() {
     }
   };
 
-  // Payment processing - CASCADING VERSION
+  // Payment processing - CORRECTED VERSION WITH PROPER INTEREST CALCULATION
   const processPayment = async (paymentData) => {
-    let remainingPayment = paymentData.amount;
+    if (!paymentData.amount || parseFloat(paymentData.amount) <= 0) {
+      alert('Por favor ingrese un monto válido');
+      return;
+    }
+
+    // Get all open loans sorted by ID for sequential payment
     const openLoans = loans
-      .filter(l => l.status === 'Open')
-      .sort((a, b) => a.id - b.id); // Ensure loans are processed in ID order
-    
+      .filter(loan => loan.status === 'Open')
+      .sort((a, b) => a.id - b.id);
+
     if (openLoans.length === 0) {
       alert('No hay préstamos abiertos para pagar');
       return;
     }
 
-    // Calculate total debt across all open loans
-    const totalDebt = openLoans.reduce((sum, loan) => {
-      return sum + loan.remainingPrincipal + (loan.accruedInterest || 0);
+    // CRITICAL FIX: For each loan, we need to RECALCULATE interest from scratch
+    // up to the payment date, NOT add to existing interest
+    const loansWithCorrectInterest = [];
+    const interestEventsToSave = [];
+    
+    for (const loan of openLoans) {
+      // Determine the starting point for interest calculation
+      // This should be the later of: loan start date OR last payment date
+      const lastPaymentToThisLoan = payments
+        .filter(p => p.loanId === loan.id)
+        .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      
+      const interestStartDate = lastPaymentToThisLoan 
+        ? lastPaymentToThisLoan.date 
+        : loan.startDate;
+      
+      // Calculate days from the interest start date to the payment date
+      const daysToPayment = daysBetween(interestStartDate, paymentData.date);
+      
+      let correctInterest = 0;
+      
+      if (daysToPayment > 0 && loan.remainingPrincipal > 0) {
+        // Calculate interest ONLY up to the payment date
+        correctInterest = calculateInterest(
+          loan.remainingPrincipal, 
+          loan.interestRate, 
+          daysToPayment
+        );
+        
+        // Create interest event for audit trail
+        const interestEvent = {
+          id: `${Date.now()}-${Math.random()}-${loan.id}`,
+          loanId: loan.id,
+          date: paymentData.date,
+          amount: correctInterest,
+          days: daysToPayment,
+          principal: loan.remainingPrincipal,
+          description: `Interest from ${interestStartDate} to ${paymentData.date}`
+        };
+        
+        interestEventsToSave.push(interestEvent);
+        
+        console.log(`Loan ${loan.loanNumber || loan.id}: Interest calculated from ${interestStartDate} to ${paymentData.date} (${daysToPayment} days): ${correctInterest.toFixed(2)}`);
+      }
+      
+      // Create a loan object with the CORRECT interest amount
+      // This replaces whatever incorrect interest was there before
+      loansWithCorrectInterest.push({
+        ...loan,
+        accruedInterest: correctInterest  // NOT adding to existing, REPLACING it
+      });
+    }
+
+    // Calculate total debt with CORRECT interest amounts
+    const totalDebt = loansWithCorrectInterest.reduce((sum, loan) => {
+      return sum + loan.remainingPrincipal + loan.accruedInterest;
     }, 0);
 
-    // Validate payment doesn't exceed total debt
-    if (paymentData.amount > totalDebt) {
-      alert(`El pago de ${formatCurrency(paymentData.amount)} excede la deuda total de ${formatCurrency(totalDebt)}.\n\nPor favor ingrese un monto menor o igual a ${formatCurrency(totalDebt)}.`);
+    if (parseFloat(paymentData.amount) > totalDebt) {
+      alert(`El pago excede la deuda total de ${formatCurrency(totalDebt)}`);
       return;
     }
 
+    // Process payment across loans with correct interest
+    let remainingPayment = parseFloat(paymentData.amount);
     const paymentsToProcess = [];
     let paymentBreakdown = [];
 
-    // Process payment across multiple loans
-    for (const loan of openLoans) {
+    for (const loan of loansWithCorrectInterest) {
       if (remainingPayment <= 0) break;
 
-      // Calculate total owed for this loan
-      const totalOwed = loan.remainingPrincipal + (loan.accruedInterest || 0);
+      // Calculate total owed for this loan (with CORRECT interest)
+      const totalOwed = loan.remainingPrincipal + loan.accruedInterest;
       
-      if (totalOwed <= 0) continue; // Skip if nothing owed
+      if (totalOwed <= 0) continue;
 
-      // Calculate how much to pay on this loan
       const paymentForThisLoan = Math.min(remainingPayment, totalOwed);
       
-      // Calculate interest and principal portions
+      // Apply payment: interest first, then principal
       let interestPaid = 0;
       let principalPaid = 0;
       
@@ -306,7 +425,7 @@ function AppWithDB() {
         principalPaid = paymentForThisLoan;
       }
 
-      // Create payment record for this loan
+      // Create payment record
       const paymentId = payments.length + paymentsToProcess.length + 1;
       
       paymentsToProcess.push({
@@ -320,36 +439,38 @@ function AppWithDB() {
         },
         loan: loan,
         newRemainingPrincipal: loan.remainingPrincipal - principalPaid,
-        newAccruedInterest: (loan.accruedInterest || 0) - interestPaid
+        newAccruedInterest: loan.accruedInterest - interestPaid  // Will be 0 if fully paid
       });
 
-      // Track payment breakdown for user feedback
       paymentBreakdown.push({
         loanNumber: loan.loanNumber || `#${loan.id}`,
         amount: paymentForThisLoan,
         interestPaid,
         principalPaid,
-        status: (loan.remainingPrincipal - principalPaid) <= 0.01 && ((loan.accruedInterest || 0) - interestPaid) <= 0.01 ? 'Pagado' : 'Parcial'
+        status: (loan.remainingPrincipal - principalPaid) <= 0.01 && 
+                (loan.accruedInterest - interestPaid) <= 0.01 ? 'Pagado' : 'Parcial'
       });
 
       remainingPayment -= paymentForThisLoan;
     }
 
-    // If no payments to process, something went wrong
     if (paymentsToProcess.length === 0) {
       alert('No se pudo procesar el pago');
       return;
     }
 
     try {
+      // Save all interest events
+      for (const interestEvent of interestEventsToSave) {
+        await db.saveInterestEvent(interestEvent);
+      }
+      
       // Save all payments and update loans
       for (const processedPayment of paymentsToProcess) {
         const { payment, loan, newRemainingPrincipal, newAccruedInterest } = processedPayment;
         
-        // Save payment
         await db.savePayment(payment);
         
-        // Generate invoice if interest was paid
         if (payment.interestPaid > 0) {
           const invoice = {
             loanId: loan.id,
@@ -358,28 +479,27 @@ function AppWithDB() {
             description: `Pago de intereses - Préstamo ${loan.loanNumber || `#${loan.id}`}`,
             type: 'interest'
           };
-          
           await db.saveInvoice(invoice);
         }
         
-        // Update loan
+        // Update loan with CORRECT values
         const isLoanPaid = newRemainingPrincipal < 0.01 && newAccruedInterest < 0.01;
         
         await db.updateLoan(loan.id, {
           remainingPrincipal: newRemainingPrincipal,
-          accruedInterest: newAccruedInterest,
+          accruedInterest: newAccruedInterest,  // This will be 0 after payment
           status: isLoanPaid ? 'Paid' : 'Open',
-          lastInterestAccrual: paymentData.date
+          lastInterestAccrual: paymentData.date  // Set to payment date
         });
       }
 
-      // Create single account transaction for the total payment
+      // Create account transaction for the payment
       const newBalance = currentBalance + paymentData.amount;
       const transaction = {
         balance: newBalance,
         transaction_type: 'payment_in',
         transaction_amount: paymentData.amount,
-        related_loan_id: paymentsToProcess[0].loan.id, // Reference first loan
+        related_loan_id: paymentsToProcess[0].loan.id,
         description: `Pago recibido - ${paymentsToProcess.length} préstamo(s)`,
         date: paymentData.date,
         createdAt: new Date().toISOString()
@@ -387,29 +507,23 @@ function AppWithDB() {
 
       await db.saveAccountTransaction(transaction);
       
-      // Reload all data
       await loadAllData();
-      
       setShowPaymentForm(false);
       
-      // Show detailed breakdown
+      // Show payment breakdown
       let message = `Pago de ${formatCurrency(paymentData.amount)} procesado exitosamente:\n\n`;
-      
       paymentBreakdown.forEach(breakdown => {
         message += `Préstamo ${breakdown.loanNumber}:\n`;
-        message += `  - Monto aplicado: ${formatCurrency(breakdown.amount)}\n`;
-        message += `  - Interés pagado: ${formatCurrency(breakdown.interestPaid)}\n`;
-        message += `  - Principal pagado: ${formatCurrency(breakdown.principalPaid)}\n`;
-        message += `  - Estado: ${breakdown.status}\n\n`;
+        message += `- Monto aplicado: ${formatCurrency(breakdown.amount)}\n`;
+        message += `- Interés pagado: ${formatCurrency(breakdown.interestPaid)}\n`;
+        message += `- Principal pagado: ${formatCurrency(breakdown.principalPaid)}\n`;
+        message += `- Estado: ${breakdown.status}\n\n`;
       });
-      
-      if (remainingPayment > 0) {
-        message += `\nNota: Sobraron ${formatCurrency(remainingPayment)} del pago. Todos los préstamos están pagados.`;
-      }
       
       alert(message);
       
     } catch (error) {
+      console.error('Error processing payment:', error);
       alert('Error al procesar el pago: ' + error.message);
     }
   };
@@ -442,31 +556,7 @@ function AppWithDB() {
   };
 
 
-  // Agregar después de la función verifyAndFixLoanStatuses (alrededor de la línea 391):
-const migrateLoanNumbers = async () => {
-  let migratedCount = 0;
   
-  for (const loan of loans) {
-    if (!loan.loanNumber) {
-      const loanNumber = generateLoanNumber(loans.filter(l => l.loanNumber), loan.startDate);
-      
-      try {
-        await db.updateLoan(loan.id, { loanNumber });
-        migratedCount++;
-      } catch (error) {
-        console.error(`Error migrating loan ${loan.id}:`, error);
-      }
-    }
-  }
-  
-  if (migratedCount > 0) {
-    await loadAllData();
-    alert(`Se generaron números para ${migratedCount} préstamo(s) existente(s)`);
-  } else {
-    alert('Todos los préstamos ya tienen número asignado');
-  }
-};
-
 const processManualTransaction = async (transactionData) => {
   const isDeposit = transactionData.type === 'deposit';
   const transactionAmount = isDeposit ? transactionData.amount : -transactionData.amount;
@@ -498,6 +588,7 @@ const processManualTransaction = async (transactionData) => {
 
 
   if (isLoading) {
+
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="text-center">
@@ -591,11 +682,11 @@ const processManualTransaction = async (transactionData) => {
         {activeTab === 'dashboard' && (
           <Dashboard 
             loans={loans}
+            payments={payments}
             invoices={invoices}
             currentBalance={currentBalance}
             onNewLoan={() => setShowLoanForm(true)}
             onNewPayment={() => setShowPaymentForm(true)}
-            onAccrueInterest={accrueInterestForAllLoans}
             onViewInvoices={() => setActiveTab('invoices')}
             onVerifyLoanStatuses={verifyAndFixLoanStatuses}
             onViewAccount={() => setActiveTab('account')}  // Agregar esta línea
@@ -651,6 +742,7 @@ const processManualTransaction = async (transactionData) => {
       {showPaymentForm && (
         <PaymentForm 
           loans={loans}
+          payments={payments}
           onSubmit={processPayment}
           onCancel={() => setShowPaymentForm(false)}
         />

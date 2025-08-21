@@ -1,21 +1,91 @@
 // src/components/PaymentForm.jsx - VERSIÓN CORREGIDA
-import React, { useState } from 'react';
-import { formatCurrency } from '../utils/loanCalculations';
-import { Calculator } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { formatCurrency, calculateInterest, daysBetween } from '../utils/loanCalculations';
+import { Calculator, AlertCircle, Calendar } from 'lucide-react';
 
-const PaymentForm = ({ loans, onSubmit, onCancel }) => {
+const PaymentForm = ({ loans, payments, onSubmit, onCancel }) => {
   const [formData, setFormData] = useState({
     amount: '',
     date: new Date().toISOString().split('T')[0]
   });
+  
+  const [interestPreview, setInterestPreview] = useState({
+    totalInterest: 0,
+    totalPrincipal: 0,
+    totalDebt: 0,
+    breakdown: []
+  });
 
   const openLoans = loans.filter(loan => loan.status === 'Open');
   
-  // Calculate total debt across all open loans
-  const totalDebt = openLoans.reduce((sum, loan) => {
-    return sum + loan.remainingPrincipal + (loan.accruedInterest || 0);
-  }, 0);
-
+  // Calculate interest whenever the date changes
+  useEffect(() => {
+    calculateInterestPreview();
+  }, [formData.date, loans, payments]);
+  
+  const calculateInterestPreview = () => {
+    if (!formData.date || openLoans.length === 0) {
+      setInterestPreview({
+        totalInterest: 0,
+        totalPrincipal: 0,
+        totalDebt: 0,
+        breakdown: []
+      });
+      return;
+    }
+    
+    let totalInterest = 0;
+    let totalPrincipal = 0;
+    const breakdown = [];
+    
+    // Calculate interest for each open loan up to the payment date
+    for (const loan of openLoans) {
+      // Find the last payment for this loan to determine interest start date
+      const lastPaymentToThisLoan = payments
+        .filter(p => p.loanId === loan.id)
+        .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      
+      const interestStartDate = lastPaymentToThisLoan 
+        ? lastPaymentToThisLoan.date 
+        : (loan.lastInterestAccrual || loan.startDate);
+      
+      // Calculate days from interest start to payment date
+      const daysToPayment = daysBetween(interestStartDate, formData.date);
+      
+      let interestForThisLoan = 0;
+      
+      if (daysToPayment > 0 && loan.remainingPrincipal > 0) {
+        interestForThisLoan = calculateInterest(
+          loan.remainingPrincipal,
+          loan.interestRate,
+          daysToPayment
+        );
+      }
+      
+      totalInterest += interestForThisLoan;
+      totalPrincipal += loan.remainingPrincipal;
+      
+      breakdown.push({
+        loanId: loan.id,
+        loanNumber: loan.loanNumber || `#${loan.id}`,
+        debtorName: loan.debtorName,
+        principal: loan.remainingPrincipal,
+        interest: interestForThisLoan,
+        days: daysToPayment,
+        interestRate: loan.interestRate,
+        fromDate: interestStartDate,
+        toDate: formData.date
+      });
+    }
+    
+    setInterestPreview({
+      totalInterest,
+      totalPrincipal,
+      totalDebt: totalInterest + totalPrincipal,
+      breakdown
+    });
+  };
+  
   const handleSubmit = () => {
     if (!formData.amount) {
       alert('Por favor ingrese el monto del pago');
@@ -29,8 +99,8 @@ const PaymentForm = ({ loans, onSubmit, onCancel }) => {
       return;
     }
     
-    if (amount > totalDebt) {
-      alert(`El pago de ${formatCurrency(amount)} excede la deuda total de ${formatCurrency(totalDebt)}.\n\nPor favor ingrese un monto menor o igual a ${formatCurrency(totalDebt)}.`);
+    if (amount > interestPreview.totalDebt) {
+      alert(`El pago de ${formatCurrency(amount)} excede la deuda total de ${formatCurrency(interestPreview.totalDebt)}.`);
       return;
     }
     
@@ -39,112 +109,212 @@ const PaymentForm = ({ loans, onSubmit, onCancel }) => {
       amount: amount
     });
   };
+  
+  // Calculate how the payment will be applied
+  const getPaymentAllocation = () => {
+    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+      return null;
+    }
+    
+    const paymentAmount = parseFloat(formData.amount);
+    let remaining = paymentAmount;
+    const allocation = [];
+    
+    for (const loan of interestPreview.breakdown) {
+      if (remaining <= 0) break;
+      
+      const totalForLoan = loan.interest + loan.principal;
+      const paymentForLoan = Math.min(remaining, totalForLoan);
+      
+      let interestPaid = Math.min(paymentForLoan, loan.interest);
+      let principalPaid = paymentForLoan - interestPaid;
+      
+      allocation.push({
+        loanNumber: loan.loanNumber,
+        debtorName: loan.debtorName,
+        interestPaid,
+        principalPaid,
+        total: paymentForLoan
+      });
+      
+      remaining -= paymentForLoan;
+    }
+    
+    return allocation;
+  };
+  
+  const paymentAllocation = getPaymentAllocation();
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md">
+      <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <h3 className="text-xl font-bold mb-4">Registrar Pago</h3>
-        <div>
-          {/* Payment info card */}
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="flex items-start gap-2">
-              <Calculator className="text-blue-600 flex-shrink-0" size={20} />
-              <div className="w-full">
-                <p className="text-sm text-blue-800 font-medium mb-2">
-                  Pago Secuencial Automático
-                </p>
-                <div className="space-y-1 text-xs text-blue-700">
-                  <p>• El pago se aplicará automáticamente a los préstamos en orden de ID</p>
-                  <p>• Se pagará primero el interés, luego el principal de cada préstamo</p>
-                  <p>• Si el pago excede lo adeudado, se aplicará al siguiente préstamo</p>
-                </div>
-                {openLoans.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-blue-300">
-                    <p className="text-xs text-blue-600 font-medium">Préstamos pendientes:</p>
-                    {openLoans.slice(0, 3).map(loan => {
-                      const totalOwed = loan.remainingPrincipal + (loan.accruedInterest || 0);
-                      return (
-                        <p key={loan.id} className="text-xs text-blue-600">
-                          {loan.loanNumber || `#${loan.id}`} - {loan.debtorName}: {formatCurrency(totalOwed)}
+        
+        {/* Date Selection */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-2">
+            <Calendar className="inline mr-1" size={16} />
+            Fecha del Pago
+          </label>
+          <input
+            type="date"
+            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+            value={formData.date}
+            onChange={(e) => setFormData({...formData, date: e.target.value})}
+          />
+        </div>
+        
+        {/* Interest Calculation Preview */}
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-start gap-2 mb-3">
+            <Calculator className="text-blue-600 flex-shrink-0" size={20} />
+            <div className="w-full">
+              <p className="text-sm font-semibold text-blue-800 mb-2">
+                Cálculo de Intereses al {formData.date ? new Date(formData.date + 'T12:00:00').toLocaleDateString('es-MX') : 'fecha seleccionada'}
+              </p>
+              
+              {interestPreview.breakdown.length > 0 ? (
+                <div className="space-y-2">
+                  {interestPreview.breakdown.map(loan => (
+                    <div key={loan.loanId} className="text-xs border-t border-blue-200 pt-2">
+                      <p className="font-medium text-blue-700">
+                        {loan.loanNumber} - {loan.debtorName}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 mt-1 text-blue-600">
+                        <div>
+                          <span className="text-gray-600">Principal:</span> {formatCurrency(loan.principal)}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Tasa:</span> {loan.interestRate}% anual
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Período:</span> {loan.days} días
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Interés:</span> <strong>{formatCurrency(loan.interest)}</strong>
+                        </div>
+                      </div>
+                      {loan.days > 0 && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Del {new Date(loan.fromDate + 'T12:00:00').toLocaleDateString('es-MX')} al {new Date(loan.toDate + 'T12:00:00').toLocaleDateString('es-MX')}
                         </p>
-                      );
-                    })}
-                    {openLoans.length > 3 && (
-                      <p className="text-xs text-blue-600">+ {openLoans.length - 3} más...</p>
-                    )}
-                    <div className="mt-2 pt-2 border-t border-blue-300">
-                      <p className="text-xs text-blue-800 font-bold">
-                        Deuda Total: {formatCurrency(totalDebt)}
-                      </p>
-                      <p className="text-xs text-blue-600">
-                        Monto máximo permitido
-                      </p>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {/* Totals */}
+                  <div className="border-t-2 border-blue-300 pt-2 mt-3">
+                    <div className="grid grid-cols-3 gap-2 text-sm font-semibold text-blue-800">
+                      <div>
+                        <p className="text-xs text-gray-600">Total Principal</p>
+                        <p>{formatCurrency(interestPreview.totalPrincipal)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-600">Total Interés</p>
+                        <p>{formatCurrency(interestPreview.totalInterest)}</p>
+                      </div>
+                      <div className="bg-blue-100 p-2 rounded">
+                        <p className="text-xs text-gray-600">Deuda Total</p>
+                        <p className="text-blue-900">{formatCurrency(interestPreview.totalDebt)}</p>
+                      </div>
                     </div>
                   </div>
-                )}
+                </div>
+              ) : (
+                <p className="text-sm text-blue-600">No hay préstamos abiertos</p>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        {/* Payment Amount */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-2">
+            Monto del Pago (MXN)
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max={interestPreview.totalDebt}
+            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+            value={formData.amount}
+            onChange={(e) => setFormData({...formData, amount: e.target.value})}
+            placeholder={`Máximo: ${formatCurrency(interestPreview.totalDebt)}`}
+          />
+        </div>
+        
+        {/* Payment Allocation Preview */}
+        {paymentAllocation && paymentAllocation.length > 0 && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="text-green-600 flex-shrink-0" size={20} />
+              <div className="w-full">
+                <p className="text-sm font-semibold text-green-800 mb-2">
+                  Aplicación del Pago
+                </p>
+                <div className="space-y-1 text-xs">
+                  {paymentAllocation.map((alloc, idx) => (
+                    <div key={idx} className="flex justify-between text-green-700">
+                      <span>{alloc.loanNumber}:</span>
+                      <span>
+                        Interés: {formatCurrency(alloc.interestPaid)} | 
+                        Principal: {formatCurrency(alloc.principalPaid)}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="border-t border-green-300 pt-1 mt-2 font-semibold text-green-800">
+                    <div className="flex justify-between">
+                      <span>Total a Pagar:</span>
+                      <span>{formatCurrency(parseFloat(formData.amount))}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Deuda Restante:</span>
+                      <span>{formatCurrency(Math.max(0, interestPreview.totalDebt - parseFloat(formData.amount)))}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Monto del Pago (MXN)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-              value={formData.amount}
-              onChange={(e) => setFormData({...formData, amount: e.target.value})}
-              placeholder="Ej: 150000"
-            />
-            {formData.amount && parseFloat(formData.amount) > 0 && (
-              <div className="mt-2 text-xs">
-                {parseFloat(formData.amount) > totalDebt ? (
-                  <div className="text-red-600 bg-red-50 p-2 rounded border border-red-200">
-                    <p className="font-medium">⚠️ Monto excede la deuda total</p>
-                    <p>Máximo permitido: {formatCurrency(totalDebt)}</p>
-                    <p>Exceso: {formatCurrency(parseFloat(formData.amount) - totalDebt)}</p>
-                  </div>
-                ) : (
-                  <div className="text-gray-600">
-                    <p>• Se aplicará automáticamente a los préstamos en orden secuencial</p>
-                    <p>• Total a pagar: {formatCurrency(parseFloat(formData.amount))}</p>
-                    <p>• Restante después del pago: {formatCurrency(totalDebt - parseFloat(formData.amount))}</p>
-                  </div>
-                )}
+        )}
+        
+        {/* Warning if overpaying */}
+        {formData.amount && parseFloat(formData.amount) > interestPreview.totalDebt && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
+              <div>
+                <p className="text-sm font-semibold text-red-800">
+                  ⚠️ Monto excede la deuda total
+                </p>
+                <p className="text-xs text-red-600">
+                  Máximo permitido: {formatCurrency(interestPreview.totalDebt)}
+                </p>
               </div>
-            )}
+            </div>
           </div>
-          
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">Fecha del Pago</label>
-            <input
-              type="date"
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-              value={formData.date}
-              onChange={(e) => setFormData({...formData, date: e.target.value})}
-            />
-          </div>
-          
-          <div className="flex gap-3">
-            <button
-              onClick={handleSubmit}
-              disabled={!formData.amount || parseFloat(formData.amount) <= 0 || parseFloat(formData.amount) > totalDebt}
-              className={`flex-1 py-2 rounded-lg transition-colors ${
-                formData.amount && parseFloat(formData.amount) > 0 && parseFloat(formData.amount) <= totalDebt
-                  ? 'bg-green-500 text-white hover:bg-green-600' 
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              Procesar Pago
-            </button>
-            <button
-              onClick={onCancel}
-              className="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-400 transition-colors"
-            >
-              Cancelar
-            </button>
-          </div>
+        )}
+        
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleSubmit}
+            disabled={!formData.amount || parseFloat(formData.amount) <= 0 || parseFloat(formData.amount) > interestPreview.totalDebt}
+            className={`flex-1 py-2 rounded-lg transition-colors ${
+              formData.amount && parseFloat(formData.amount) > 0 && parseFloat(formData.amount) <= interestPreview.totalDebt
+                ? 'bg-green-500 text-white hover:bg-green-600' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            Procesar Pago
+          </button>
+          <button
+            onClick={onCancel}
+            className="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-400 transition-colors"
+          >
+            Cancelar
+          </button>
         </div>
       </div>
     </div>
