@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
 
-const TransactionForm = ({ onSubmit, onCancel, currentBalance }) => {
+const TransactionForm = ({ onSubmit, onCancel, currentBalance, accountTransactions = [] }) => {
   const [formData, setFormData] = useState({
     type: 'deposit', // 'deposit' o 'withdrawal'
     amount: '',
-    description: '',
+    description: accountTransactions.length === 0 ? 'Balance inicial de la cuenta' : '',
     date: new Date().toISOString().split('T')[0]
   });
 
@@ -37,7 +37,23 @@ const TransactionForm = ({ onSubmit, onCancel, currentBalance }) => {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-md">
-        <h3 className="text-xl font-bold mb-4">Registrar Transacción</h3>
+        <h3 className="text-xl font-bold mb-4">
+          {accountTransactions.length === 0 ? 'Establecer Balance Inicial' : 'Registrar Transacción'}
+        </h3>
+        
+        {accountTransactions.length === 0 && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <DollarSign className="text-blue-600 flex-shrink-0" size={20} />
+              <div>
+                <p className="text-sm text-blue-800 font-medium">Balance Inicial</p>
+                <p className="text-xs text-blue-600 mt-1">
+                  Esta será su primera transacción y establecerá el balance inicial de su cuenta.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         
         <div className="mb-4">
           <label className="block text-sm font-medium mb-2">Tipo de Transacción</label>

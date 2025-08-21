@@ -472,12 +472,15 @@ const processManualTransaction = async (transactionData) => {
   const transactionAmount = isDeposit ? transactionData.amount : -transactionData.amount;
   const newBalance = currentBalance + transactionAmount;
   
+  // Determine if this is the initial balance (first transaction ever OR currentBalance is 0 and it's a deposit)
+  const isInitialBalance = accountTransactions.length === 0 && isDeposit;
+  
   const transaction = {
     balance: newBalance,
-    transaction_type: transactionData.type,
+    transaction_type: isInitialBalance ? 'initial' : transactionData.type,
     transaction_amount: transactionAmount,
     related_loan_id: null,
-    description: transactionData.description,
+    description: isInitialBalance ? 'Balance Inicial' : transactionData.description,
     date: transactionData.date,
     createdAt: new Date().toISOString()
   };
@@ -668,6 +671,7 @@ const processManualTransaction = async (transactionData) => {
     onSubmit={processManualTransaction}
     onCancel={() => setShowTransactionForm(false)}
     currentBalance={currentBalance}
+    accountTransactions={accountTransactions}
   />
         )}
     </div>

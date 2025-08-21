@@ -29,7 +29,8 @@ const AccountHistory = ({ transactions, onNewTransaction }) => {
 
   const filteredTransactions = transactions.filter(t => {
     if (filter === 'all') return true;
-    if (filter === 'deposits') return t.transaction_type === 'deposit';
+    if (filter === 'initial') return t.transaction_type === 'initial' || (t.transaction_type === 'deposit' && t.description === 'Inicial');
+    if (filter === 'deposits') return t.transaction_type === 'deposit' && t.description !== 'Inicial';
     if (filter === 'withdrawals') return t.transaction_type === 'withdrawal';
     if (filter === 'loans') return t.transaction_type === 'loan_out';
     if (filter === 'payments') return t.transaction_type === 'payment_in';
@@ -38,7 +39,7 @@ const AccountHistory = ({ transactions, onNewTransaction }) => {
 
   // Calcular totales
   const totals = transactions.reduce((acc, t) => {
-    if (t.transaction_type === 'initial') {
+    if (t.transaction_type === 'initial' || (t.transaction_type === 'deposit' && t.description === 'Inicial')) {
       acc.initial = t.transaction_amount;
     } else if (t.transaction_type === 'deposit' || t.transaction_type === 'payment_in') {
       acc.deposits += Math.abs(t.transaction_amount);
@@ -47,6 +48,21 @@ const AccountHistory = ({ transactions, onNewTransaction }) => {
     }
     return acc;
   }, { initial: 0, deposits: 0, withdrawals: 0 });
+
+  // Calculate current balance from most recent transaction
+  const getCurrentBalance = () => {
+    if (transactions.length === 0) return 0;
+    // Find the most recent transaction by date and id
+    const sortedByDateDesc = [...transactions].sort((a, b) => {
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
+      if (dateA.getTime() === dateB.getTime()) {
+        return b.id - a.id; // If same date, use most recent ID
+      }
+      return dateB.getTime() - dateA.getTime(); // Most recent date first
+    });
+    return sortedByDateDesc[0].balance;
+  };
 
   return (
     <div className="p-6">
@@ -78,7 +94,7 @@ const AccountHistory = ({ transactions, onNewTransaction }) => {
         <div className="bg-white p-4 rounded-lg shadow">
           <p className="text-sm text-gray-500">Balance Actual</p>
           <p className="text-xl font-bold text-gray-800">
-            {formatCurrency(transactions[0]?.balance || 0)}
+            {formatCurrency(getCurrentBalance())}
           </p>
         </div>
       </div>
@@ -94,6 +110,16 @@ const AccountHistory = ({ transactions, onNewTransaction }) => {
           }`}
         >
           Todas
+        </button>
+        <button
+          onClick={() => setFilter('initial')}
+          className={`px-4 py-2 rounded-lg transition-colors ${
+            filter === 'initial' 
+              ? 'bg-blue-600 text-white' 
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
+        >
+          Balance Inicial
         </button>
         <button
           onClick={() => setFilter('deposits')}
@@ -165,8 +191,8 @@ const AccountHistory = ({ transactions, onNewTransaction }) => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        {getTransactionIcon(transaction.transaction_type)}
-                        <span className="text-sm">{getTransactionLabel(transaction.transaction_type)}</span>
+                        {getTransactionIcon(transaction.transaction_type === 'deposit' && transaction.description === 'Inicial' ? 'initial' : transaction.transaction_type)}
+                        <span className="text-sm">{getTransactionLabel(transaction.transaction_type === 'deposit' && transaction.description === 'Inicial' ? 'initial' : transaction.transaction_type)}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm">{transaction.description}</td>
