@@ -38,9 +38,6 @@ function AppWithDB() {
 
   const [showTransactionForm, setShowTransactionForm] = useState(false);
 
-  const [lastDailyCalculation, setLastDailyCalculation] = useState(
-    localStorage.getItem('lastDailyCalculation') || null
-  );
 
   // Load data from database on mount
   useEffect(() => {
@@ -133,7 +130,6 @@ function AppWithDB() {
           
           // Mark today as calculated
           localStorage.setItem('lastDailyCalculation', today);
-          setLastDailyCalculation(today);
           
           // Reload data to show updates
           await loadAllData();
@@ -152,7 +148,6 @@ function AppWithDB() {
       } else {
         // Still mark today as checked even if no updates needed
         localStorage.setItem('lastDailyCalculation', today);
-        setLastDailyCalculation(today);
         console.log('No interest updates needed today');
       }
     }
@@ -321,8 +316,20 @@ function AppWithDB() {
 
   // Payment processing - CORRECTED VERSION WITH PROPER INTEREST CALCULATION
   const processPayment = async (paymentData) => {
+    
     if (!paymentData.amount || parseFloat(paymentData.amount) <= 0) {
       alert('Por favor ingrese un monto válido');
+      return;
+    }
+      // VALIDATION 2: Check valid date format
+    if (!paymentData.date || !paymentData.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      alert('Por favor seleccione una fecha válida');
+      return;
+    }
+      // VALIDATION 3: Prevent future date payments
+    const today = new Date().toISOString().split('T')[0];
+    if (paymentData.date > today) {
+      alert(`No se pueden registrar pagos con fecha futura.\nFecha máxima permitida: ${formatDate(today)}`);
       return;
     }
 
@@ -334,6 +341,39 @@ function AppWithDB() {
     if (openLoans.length === 0) {
       alert('No hay préstamos abiertos para pagar');
       return;
+    }
+
+
+
+      // VALIDATION 4: Check payment date is not before any loan start date
+    for (const loan of openLoans) {
+      if (paymentData.date < loan.startDate) {
+        alert(
+          `La fecha de pago (${formatDate(paymentData.date)}) no puede ser anterior ` +
+          `a la fecha de inicio del préstamo ${loan.loanNumber || loan.id} (${formatDate(loan.startDate)})`
+        );
+        return;
+      }
+    }
+
+    // VALIDATION 5: Check for existing payments after this date
+    const futurePayments = payments.filter(p => 
+      openLoans.some(loan => loan.id === p.loanId) && 
+      p.date > paymentData.date
+    );
+  
+    if (futurePayments.length > 0) {
+      const futurePaymentDates = futurePayments
+        .map(p => formatDate(p.date))
+        .join(', ');
+    
+      const proceed = window.confirm(
+        `⚠️ Advertencia: Existen pagos registrados en fechas posteriores (${futurePaymentDates}).\n\n` +
+        `Registrar este pago podría afectar los cálculos de intereses.\n\n` +
+        `¿Desea continuar de todos modos?`
+      );
+    
+      if (!proceed) return;
     }
 
     // CRITICAL FIX: For each loan, we need to RECALCULATE interest from scratch

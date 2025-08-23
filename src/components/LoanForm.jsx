@@ -1,13 +1,15 @@
 // src/components/LoanForm.jsx
 import React, { useState } from 'react';
-import { generateLoanNumber } from '../utils/loanCalculations';
+import { generateLoanNumber, formatDate } from '../utils/loanCalculations';
 
 const LoanForm = ({ onSubmit, onCancel, initialData = null, getNextLoanId }) => {
+  const today = new Date().toISOString().split('T')[0];
+  
   const [formData, setFormData] = useState({
     debtorName: initialData?.debtorName || '',
     amount: initialData?.amount || '',
     interestRate: initialData?.interestRate || 15,
-    startDate: initialData?.startDate || new Date().toISOString().split('T')[0],
+    startDate: initialData?.startDate || today,
     destiny: initialData?.destiny || ''
   });
 
@@ -18,10 +20,36 @@ const LoanForm = ({ onSubmit, onCancel, initialData = null, getNextLoanId }) => 
     : generateLoanNumber(nextId, formData.startDate);
 
   const handleSubmit = () => {
+    // Existing validations
     if (!formData.debtorName || !formData.amount) {
       alert('Por favor complete todos los campos requeridos');
       return;
     }
+    
+    // Add date validation
+    if (!formData.startDate) {
+      alert('Por favor seleccione una fecha de inicio');
+      return;
+    }
+    
+    if (formData.startDate > today) {
+      alert('La fecha de inicio no puede ser futura');
+      return;
+    }
+    
+    // Check if date is too old (optional - e.g., no loans older than 5 years)
+    const fiveYearsAgo = new Date();
+    fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
+    const oldestAllowedDate = fiveYearsAgo.toISOString().split('T')[0];
+    
+    if (formData.startDate < oldestAllowedDate) {
+      const proceed = window.confirm(
+        `La fecha de inicio es muy antigua (${formatDate(formData.startDate)}).\n` +
+        `¿Está seguro de que desea continuar?`
+      );
+      if (!proceed) return;
+    }
+    
     onSubmit({
       ...formData,
       amount: parseFloat(formData.amount),
@@ -101,10 +129,16 @@ const LoanForm = ({ onSubmit, onCancel, initialData = null, getNextLoanId }) => 
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={formData.startDate}
               onChange={(e) => setFormData({...formData, startDate: e.target.value})}
+              max={today} // Can't create loan with future date
             />
-            {!initialData && formData.startDate !== new Date().toISOString().split('T')[0] && (
+            {!initialData && formData.startDate !== today && (
               <p className="text-xs text-yellow-600 mt-1">
                 Nota: El número de préstamo cambiará según la fecha seleccionada
+              </p>
+            )}
+            {formData.startDate > today && (
+              <p className="text-xs text-red-500 mt-1">
+                La fecha de inicio no puede ser futura
               </p>
             )}
           </div>

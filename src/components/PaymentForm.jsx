@@ -1,12 +1,14 @@
 // src/components/PaymentForm.jsx - VERSIÓN CORREGIDA
 import React, { useState, useEffect } from 'react';
-import { formatCurrency, calculateInterest, daysBetween } from '../utils/loanCalculations';
+import { formatCurrency, calculateInterest, daysBetween, formatDate } from '../utils/loanCalculations';
 import { Calculator, AlertCircle, Calendar } from 'lucide-react';
 
 const PaymentForm = ({ loans, payments, onSubmit, onCancel }) => {
+  const today = new Date().toISOString().split('T')[0];
+  
   const [formData, setFormData] = useState({
     amount: '',
-    date: new Date().toISOString().split('T')[0]
+    date: today // Default to today
   });
   
   const [interestPreview, setInterestPreview] = useState({
@@ -17,6 +19,11 @@ const PaymentForm = ({ loans, payments, onSubmit, onCancel }) => {
   });
 
   const openLoans = loans.filter(loan => loan.status === 'Open');
+  
+  // Find the earliest loan start date
+  const earliestLoanDate = openLoans.reduce((earliest, loan) => {
+    return !earliest || loan.startDate < earliest ? loan.startDate : earliest;
+  }, null);
   
   // Calculate interest whenever the date changes
   useEffect(() => {
@@ -92,6 +99,22 @@ const PaymentForm = ({ loans, payments, onSubmit, onCancel }) => {
       return;
     }
     
+    // Date validation
+    if (!formData.date) {
+      alert('Por favor seleccione una fecha de pago');
+      return;
+    }
+    
+    if (formData.date > today) {
+      alert('No se pueden registrar pagos con fecha futura');
+      return;
+    }
+    
+    if (earliestLoanDate && formData.date < earliestLoanDate) {
+      alert(`La fecha no puede ser anterior al préstamo más antiguo (${formatDate(earliestLoanDate)})`);
+      return;
+    }
+    
     const amount = parseFloat(formData.amount);
     
     if (amount <= 0) {
@@ -150,7 +173,7 @@ const PaymentForm = ({ loans, payments, onSubmit, onCancel }) => {
       <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <h3 className="text-xl font-bold mb-4">Registrar Pago</h3>
         
-        {/* Date Selection */}
+        {/* Date Selection with validation */}
         <div className="mb-4">
           <label className="block text-sm font-medium mb-2">
             <Calendar className="inline mr-1" size={16} />
@@ -161,7 +184,19 @@ const PaymentForm = ({ loans, payments, onSubmit, onCancel }) => {
             className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
             value={formData.date}
             onChange={(e) => setFormData({...formData, date: e.target.value})}
+            min={earliestLoanDate} // Can't pay before earliest loan
+            max={today} // Can't pay in the future
           />
+          {earliestLoanDate && formData.date < earliestLoanDate && (
+            <p className="text-xs text-red-500 mt-1">
+              La fecha no puede ser anterior al préstamo más antiguo ({formatDate(earliestLoanDate)})
+            </p>
+          )}
+          {formData.date > today && (
+            <p className="text-xs text-red-500 mt-1">
+              No se pueden registrar pagos con fecha futura
+            </p>
+          )}
         </div>
         
         {/* Interest Calculation Preview */}
@@ -300,9 +335,21 @@ const PaymentForm = ({ loans, payments, onSubmit, onCancel }) => {
         <div className="flex gap-3">
           <button
             onClick={handleSubmit}
-            disabled={!formData.amount || parseFloat(formData.amount) <= 0 || parseFloat(formData.amount) > interestPreview.totalDebt}
+            disabled={
+              !formData.amount || 
+              !formData.date || 
+              parseFloat(formData.amount) <= 0 || 
+              parseFloat(formData.amount) > interestPreview.totalDebt ||
+              formData.date > today ||
+              (earliestLoanDate && formData.date < earliestLoanDate)
+            }
             className={`flex-1 py-2 rounded-lg transition-colors ${
-              formData.amount && parseFloat(formData.amount) > 0 && parseFloat(formData.amount) <= interestPreview.totalDebt
+              formData.amount && 
+              formData.date && 
+              parseFloat(formData.amount) > 0 && 
+              parseFloat(formData.amount) <= interestPreview.totalDebt &&
+              formData.date <= today &&
+              (!earliestLoanDate || formData.date >= earliestLoanDate)
                 ? 'bg-green-500 text-white hover:bg-green-600' 
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             }`}
