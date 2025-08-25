@@ -124,36 +124,36 @@ const useDatabase = () => {
       }
     },
 
-    // ========== INVOICES ==========
-    getInvoices: async () => {
+    // ========== INTEREST PAYMENTS ==========
+    getInterestPayments: async () => {
       if (isElectron && window.electronAPI) {
         try {
-          return await window.electronAPI.getInvoices();
+          return await window.electronAPI.getInterestPayments();
         } catch (error) {
-          console.error('Error getting invoices from database:', error);
+          console.error('Error getting interest payments from database:', error);
           return [];
         }
       } else {
-        const data = localStorage.getItem('invoices');
+        const data = localStorage.getItem('interestPayments');
         return data ? JSON.parse(data) : [];
       }
     },
     
-    saveInvoice: async (invoice) => {
+    saveInterestPayment: async (interestPayment) => {
       if (isElectron && window.electronAPI) {
         try {
-          const result = await window.electronAPI.createInvoice(invoice);
-          // Update invoice with auto-generated ID from database
-          return { ...invoice, id: result.id };
+          const result = await window.electronAPI.createInterestPayment(interestPayment);
+          // Update interestPayment with auto-generated ID from database
+          return { ...interestPayment, id: result.id };
         } catch (error) {
-          console.error('Error saving invoice to database:', error);
+          console.error('Error saving interest payment to database:', error);
           throw error;
         }
       } else {
-        const invoices = JSON.parse(localStorage.getItem('invoices') || '[]');
-        invoices.push(invoice);
-        localStorage.setItem('invoices', JSON.stringify(invoices));
-        return invoice;
+        const interestPayments = JSON.parse(localStorage.getItem('interestPayments') || '[]');
+        interestPayments.push(interestPayment);
+        localStorage.setItem('interestPayments', JSON.stringify(interestPayments));
+        return interestPayment;
       }
     },
 

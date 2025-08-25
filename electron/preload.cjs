@@ -15,9 +15,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createPayment: (payment) => ipcRenderer.invoke('db:createPayment', payment),
   deletePayment: (id) => ipcRenderer.invoke('db:deletePayment', id),
   
-  // Invoices
-  getInvoices: () => ipcRenderer.invoke('db:getInvoices'),
-  createInvoice: (invoice) => ipcRenderer.invoke('db:createInvoice', invoice),
+  // Interest Payments
+  getInterestPayments: () => ipcRenderer.invoke('db:getInterestPayments'),
+  createInterestPayment: (payment) => ipcRenderer.invoke('db:createInterestPayment', payment),
   
   // Interest Events
   getInterestEvents: () => ipcRenderer.invoke('db:getInterestEvents'),

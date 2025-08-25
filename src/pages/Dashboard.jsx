@@ -5,11 +5,11 @@ import { formatCurrency, calculateInterest, daysBetween } from '../utils/loanCal
 const Dashboard = ({ 
   loans,
   payments,  // Add this prop
-  invoices, 
+  interestPayments, 
   currentBalance,
   onNewLoan, 
   onNewPayment, 
-  onViewInvoices,
+  onViewInterestPayments,
   onVerifyLoanStatuses,
   onViewAccount
 }) => {
@@ -136,10 +136,10 @@ const Dashboard = ({
         
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-500">Facturas Generadas</span>
+            <span className="text-gray-500">Pagos de Intereses</span>
             <FileText className="text-gray-400" size={20} />
           </div>
-          <p className="text-2xl font-bold">{invoices.length}</p>
+          <p className="text-2xl font-bold">{interestPayments.length}</p>
         </div>
       </div>
 
@@ -244,11 +244,11 @@ const Dashboard = ({
             Registrar Pago
           </button>
           <button
-            onClick={onViewInvoices}
+            onClick={onViewInterestPayments}
             className="flex items-center justify-center gap-2 bg-purple-500 text-white px-4 py-3 rounded-lg hover:bg-purple-600 transition-colors"
           >
             <FileText size={20} />
-            Ver Facturas
+            Ver Pagos de Intereses
           </button>
           <button
             onClick={onVerifyLoanStatuses}

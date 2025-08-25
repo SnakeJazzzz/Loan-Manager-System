@@ -3,11 +3,11 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { formatCurrency, formatDate } from '../utils/loanCalculations';
 
-const LoanDetails = ({ loan, payments, invoices, interestEvents, onClose }) => {
+const LoanDetails = ({ loan, payments, interestPayments, interestEvents, onClose }) => {
   if (!loan) return null;
 
   const loanPayments = payments.filter(p => p.loanId === loan.id);
-  const loanInvoices = invoices.filter(i => i.loanId === loan.id);
+  const loanInterestPayments = interestPayments.filter(i => i.loanId === loan.id);
   const loanInterestEvents = interestEvents.filter(e => e.loanId === loan.id);
   
   // Calculate total paid from all payments
@@ -153,8 +153,8 @@ const LoanDetails = ({ loan, payments, invoices, interestEvents, onClose }) => {
         </div>
 
         <div className="border-t pt-6 mt-6">
-          <h4 className="font-semibold mb-4">Facturas Generadas</h4>
-          {loanInvoices.length > 0 ? (
+          <h4 className="font-semibold mb-4">Pagos de Intereses</h4>
+          {loanInterestPayments.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -165,18 +165,18 @@ const LoanDetails = ({ loan, payments, invoices, interestEvents, onClose }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {loanInvoices.map(invoice => (
-                    <tr key={invoice.id} className="border-b">
-                      <td className="py-2">{formatDate(invoice.date)}</td>
-                      <td className="py-2">{invoice.description}</td>
-                      <td className="py-2">{formatCurrency(invoice.amount)}</td>
+                  {loanInterestPayments.map(payment => (
+                    <tr key={payment.id} className="border-b">
+                      <td className="py-2">{formatDate(payment.date)}</td>
+                      <td className="py-2">{payment.description}</td>
+                      <td className="py-2">{formatCurrency(payment.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <p className="text-gray-500">No hay facturas generadas</p>
+            <p className="text-gray-500">No hay pagos de intereses registrados</p>
           )}
         </div>
       </div>

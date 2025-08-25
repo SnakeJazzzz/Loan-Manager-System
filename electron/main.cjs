@@ -252,8 +252,8 @@ ipcMain.handle('db:deletePayment', async (event, id) => {
   });
 });
 
-// Invoices handlers
-ipcMain.handle('db:getInvoices', async () => {
+// Interest Payments handlers
+ipcMain.handle('db:getInterestPayments', async () => {
   return new Promise((resolve, reject) => {
     db.all('SELECT * FROM invoices ORDER BY id DESC', (err, rows) => {
       if (err) reject(err);
@@ -262,7 +262,7 @@ ipcMain.handle('db:getInvoices', async () => {
   });
 });
 
-ipcMain.handle('db:createInvoice', async (event, invoice) => {
+ipcMain.handle('db:createInterestPayment', async (_, interestPayment) => {
   return new Promise((resolve, reject) => {
     const stmt = db.prepare(`
       INSERT INTO invoices (loanId, date, amount, description, type)
@@ -270,8 +270,8 @@ ipcMain.handle('db:createInvoice', async (event, invoice) => {
     `);
     
     stmt.run(
-      invoice.loanId, invoice.date, invoice.amount, 
-      invoice.description, invoice.type,
+      interestPayment.loanId, interestPayment.date, interestPayment.amount, 
+      interestPayment.description, interestPayment.type || 'interest_payment',
       function(err) {
         if (err) reject(err);
         else resolve({ id: this.lastID, success: true });

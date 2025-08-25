@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard';
 import LoansList from './pages/LoansList';
-import InvoicesList from './pages/InvoicesList';
+import InterestPayments from './pages/InterestPayments';
 import PaymentsList from './pages/PaymentsList';
 import LoanForm from './components/LoanForm';
 import PaymentForm from './components/PaymentForm';
@@ -21,7 +21,7 @@ function AppWithDB() {
   // State management
   const [loans, setLoans] = useState([]);
   const [payments, setPayments] = useState([]);
-  const [invoices, setInvoices] = useState([]);
+  const [interestPayments, setInterestPayments] = useState([]);
   const [interestEvents, setInterestEvents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -161,17 +161,17 @@ function AppWithDB() {
   const loadAllData = async () => {
     setIsLoading(true);
     try {
-      const [loansData, paymentsData, invoicesData, eventsData, transactionsData] = await Promise.all([
+      const [loansData, paymentsData, interestPaymentsData, eventsData, transactionsData] = await Promise.all([
         db.getLoans(),
         db.getPayments(),
-        db.getInvoices(),
+        db.getInterestPayments(),
         db.getInterestEvents(),
         db.getAccountTransactions ? db.getAccountTransactions() : Promise.resolve([])
       ]);
       
       setLoans(loansData);
       setPayments(paymentsData);
-      setInvoices(invoicesData);
+      setInterestPayments(interestPaymentsData);
       setInterestEvents(eventsData);
       setAccountTransactions(transactionsData);
       
@@ -512,14 +512,14 @@ function AppWithDB() {
         await db.savePayment(payment);
         
         if (payment.interestPaid > 0) {
-          const invoice = {
+          const interestPayment = {
             loanId: loan.id,
             date: paymentData.date,
             amount: payment.interestPaid,
             description: `Pago de intereses - Préstamo ${loan.loanNumber || `#${loan.id}`}`,
-            type: 'interest'
+            type: 'interest_payment'
           };
-          await db.saveInvoice(invoice);
+          await db.saveInterestPayment(interestPayment);
         }
         
         // Update loan with CORRECT values
@@ -690,14 +690,14 @@ const processManualTransaction = async (transactionData) => {
               Pagos
             </button>
             <button
-              onClick={() => setActiveTab('invoices')}
+              onClick={() => setActiveTab('interestPayments')}
               className={`py-4 px-1 border-b-2 transition-colors ${
-                activeTab === 'invoices' 
+                activeTab === 'interestPayments' 
                   ? 'border-blue-500 text-blue-600' 
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              Facturas
+              Pagos de Intereses
             </button>
 
 
@@ -723,11 +723,11 @@ const processManualTransaction = async (transactionData) => {
           <Dashboard 
             loans={loans}
             payments={payments}
-            invoices={invoices}
+            interestPayments={interestPayments}
             currentBalance={currentBalance}
             onNewLoan={() => setShowLoanForm(true)}
             onNewPayment={() => setShowPaymentForm(true)}
-            onViewInvoices={() => setActiveTab('invoices')}
+            onViewInterestPayments={() => setActiveTab('interestPayments')}
             onVerifyLoanStatuses={verifyAndFixLoanStatuses}
             onViewAccount={() => setActiveTab('account')}  // Agregar esta línea
           />
@@ -748,9 +748,9 @@ const processManualTransaction = async (transactionData) => {
             onDeletePayment={deletePayment}
           />
         )}
-        {activeTab === 'invoices' && (
-          <InvoicesList 
-            invoices={invoices}
+        {activeTab === 'interestPayments' && (
+          <InterestPayments 
+            interestPayments={interestPayments}
             loans={loans}
           />
         )}
@@ -791,7 +791,7 @@ const processManualTransaction = async (transactionData) => {
         <LoanDetails 
           loan={selectedLoan}
           payments={payments}
-          invoices={invoices}
+          interestPayments={interestPayments}
           interestEvents={interestEvents}
           onClose={() => setSelectedLoan(null)}
         />
