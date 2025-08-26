@@ -20,13 +20,14 @@ export const calculateMonthlyInterest = (month, year, loans, payments) => {
     return loanStart <= monthEnd;
   });
   
-  // Get payments made during this month
+  // Get ALL payments that have interest paid during this month
+  // This is the key fix - we need to look at interestPaid field
   const paymentsInMonth = payments.filter(payment => 
     payment.date >= monthStart && payment.date <= monthEnd
   );
   
   let totalAccrued = 0;
-  let totalPaid = 0;
+  let totalPaid = 0; // This will track interest paid
   const loanBreakdown = [];
   const dailyBreakdown = [];
   
@@ -72,13 +73,18 @@ export const calculateMonthlyInterest = (month, year, loans, payments) => {
             loanNumber: loan.loanNumber,
             principal: currentPrincipal,
             dailyInterest: dayInterest,
-            payment: paymentOnThisDay.totalPaid
+            payment: paymentOnThisDay.totalPaid,
+            interestPaid: paymentOnThisDay.interestPaid || 0  // Track interest paid
           });
         }
         
         // Apply the payment
         currentPrincipal -= paymentOnThisDay.principalPaid;
-        totalPaid += paymentOnThisDay.interestPaid;
+        
+        // FIX: Add the interest paid from this payment
+        if (paymentOnThisDay.interestPaid) {
+          totalPaid += paymentOnThisDay.interestPaid;
+        }
       } else {
         // No payment, just accrue interest
         if (currentPrincipal > 0) {
@@ -91,7 +97,8 @@ export const calculateMonthlyInterest = (month, year, loans, payments) => {
             loanNumber: loan.loanNumber,
             principal: currentPrincipal,
             dailyInterest: dayInterest,
-            payment: 0
+            payment: 0,
+            interestPaid: 0
           });
         }
       }
@@ -112,11 +119,15 @@ export const calculateMonthlyInterest = (month, year, loans, payments) => {
     });
   }
   
+  // Calculate remaining (unpaid interest)
+  const remaining = totalAccrued - totalPaid;
+  
   return {
     month,
     year,
     totalAccrued: Math.round(totalAccrued * 100) / 100,
     totalPaid: Math.round(totalPaid * 100) / 100,
+    remaining: Math.round(remaining * 100) / 100,
     loanBreakdown,
     dailyBreakdown,
     paymentsInMonth

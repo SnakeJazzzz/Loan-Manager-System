@@ -130,10 +130,22 @@ export const generateAllHistoricalInvoices = async (loans, payments, db, forceRe
   
   // Current date
   const now = new Date();
-  const endMonth = now.getMonth() + 1;
-  const endYear = now.getFullYear();
+  const currentDay = now.getDate();
+  let endMonth = now.getMonth() + 1; // Current month (1-12)
+  let endYear = now.getFullYear();
   
-  console.log(`Checking invoices from ${startMonth}/${startYear} to ${endMonth}/${endYear}`);
+  // FIX: Only generate up to LAST month unless it's the 1st of the month
+  // If it's not the 1st of the month, don't generate current month's invoice
+  if (currentDay > 1) {
+    // Go back to previous month
+    endMonth = endMonth - 1;
+    if (endMonth === 0) {
+      endMonth = 12;
+      endYear = endYear - 1;
+    }
+  }
+  
+  console.log(`Checking invoices from ${startMonth}/${startYear} to ${endMonth}/${endYear} (Today: ${now.toISOString().split('T')[0]})`);
   
   const invoices = [];
   let currentMonth = startMonth;
@@ -188,18 +200,28 @@ export const regenerateAffectedInvoices = async (changeDate, loans, payments, db
   const [year, monthStr] = changeDate.split('-');
   const month = parseInt(monthStr);
   
-  // Regenerate from the month of change to current month
+  // Regenerate from the month of change to last completed month
   const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
+  const currentDay = now.getDate();
+  let endMonth = now.getMonth() + 1;
+  let endYear = now.getFullYear();
   
-  console.log(`Regenerating invoices from ${month}/${year} due to change on ${changeDate}`);
+  // FIX: Don't regenerate current month unless it's complete
+  if (currentDay > 1) {
+    endMonth = endMonth - 1;
+    if (endMonth === 0) {
+      endMonth = 12;
+      endYear = endYear - 1;
+    }
+  }
+  
+  console.log(`Regenerating invoices from ${month}/${year} to ${endMonth}/${endYear} due to change on ${changeDate}`);
   
   return await generateInvoiceRange(
     month,
     parseInt(year),
-    currentMonth,
-    currentYear,
+    endMonth,
+    endYear,
     loans,
     payments,
     db
@@ -294,8 +316,18 @@ export const getInvoiceGenerationStatus = async (loans, db) => {
   
   // Current date
   const now = new Date();
-  const endMonth = now.getMonth() + 1;
-  const endYear = now.getFullYear();
+  const currentDay = now.getDate();
+  let endMonth = now.getMonth() + 1;
+  let endYear = now.getFullYear();
+  
+  // Only count completed months
+  if (currentDay > 1) {
+    endMonth = endMonth - 1;
+    if (endMonth === 0) {
+      endMonth = 12;
+      endYear = endYear - 1;
+    }
+  }
   
   const missingMonths = [];
   let totalMonths = 0;
