@@ -232,7 +232,81 @@ const useDatabase = () => {
         localStorage.setItem('interestEvents', JSON.stringify(interestEvents));
         return { success: true };
       }
+    },
+
+
+ 
+    // ========== MONTHLY INVOICES ==========
+    getMonthlyInvoices: async () => {
+  if (isElectron && window.electronAPI) {
+    try {
+      return await window.electronAPI.getMonthlyInvoices();
+    } catch (error) {
+      console.error('Error getting monthly invoices from database:', error);
+      return [];
     }
+  } else {
+    const data = localStorage.getItem('monthlyInvoices');
+    return data ? JSON.parse(data) : [];
+  }
+    },
+
+    getMonthlyInvoice: async (month, year) => {
+  if (isElectron && window.electronAPI) {
+    try {
+      return await window.electronAPI.getMonthlyInvoice(month, year);
+    } catch (error) {
+      console.error('Error getting monthly invoice from database:', error);
+      return null;
+    }
+  } else {
+    const invoices = JSON.parse(localStorage.getItem('monthlyInvoices') || '[]');
+    return invoices.find(inv => inv.month === month && inv.year === year) || null;
+  }
+    },
+
+    saveMonthlyInvoice: async (invoice) => {
+  if (isElectron && window.electronAPI) {
+    try {
+      return await window.electronAPI.saveMonthlyInvoice(invoice);
+    } catch (error) {
+      console.error('Error saving monthly invoice to database:', error);
+      throw error;
+    }
+  } else {
+    const invoices = JSON.parse(localStorage.getItem('monthlyInvoices') || '[]');
+    const existingIndex = invoices.findIndex(
+      inv => inv.month === invoice.month && inv.year === invoice.year
+    );
+    
+    if (existingIndex >= 0) {
+      invoices[existingIndex] = invoice;
+    } else {
+      invoices.push(invoice);
+    }
+    
+    localStorage.setItem('monthlyInvoices', JSON.stringify(invoices));
+    return { success: true, id: invoice.id };
+  }
+    },
+
+    deleteMonthlyInvoice: async (id) => {
+  if (isElectron && window.electronAPI) {
+    try {
+      return await window.electronAPI.deleteMonthlyInvoice(id);
+    } catch (error) {
+      console.error('Error deleting monthly invoice from database:', error);
+      throw error;
+    }
+  } else {
+    const invoices = JSON.parse(localStorage.getItem('monthlyInvoices') || '[]');
+    const filtered = invoices.filter(inv => inv.id !== id);
+    localStorage.setItem('monthlyInvoices', JSON.stringify(filtered));
+    return { success: true };
+  }
+    },  
+
+
   };
 
   return { isElectron, db };

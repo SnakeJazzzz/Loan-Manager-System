@@ -24,6 +24,7 @@ function AppWithDB() {
   const [interestPayments, setInterestPayments] = useState([]);
   const [interestEvents, setInterestEvents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [monthlyInvoices, setMonthlyInvoices] = useState([]);
   
   // Account balance state
   const [accountTransactions, setAccountTransactions] = useState([]);
@@ -161,12 +162,13 @@ function AppWithDB() {
   const loadAllData = async () => {
     setIsLoading(true);
     try {
-      const [loansData, paymentsData, interestPaymentsData, eventsData, transactionsData] = await Promise.all([
+      const [loansData, paymentsData, interestPaymentsData, eventsData, transactionsData, monthlyInvoicesData] = await Promise.all([
         db.getLoans(),
         db.getPayments(),
         db.getInterestPayments(),
         db.getInterestEvents(),
-        db.getAccountTransactions ? db.getAccountTransactions() : Promise.resolve([])
+        db.getAccountTransactions ? db.getAccountTransactions() : Promise.resolve([]),
+        db.getMonthlyInvoices()
       ]);
       
       setLoans(loansData);
@@ -174,6 +176,7 @@ function AppWithDB() {
       setInterestPayments(interestPaymentsData);
       setInterestEvents(eventsData);
       setAccountTransactions(transactionsData);
+      setMonthlyInvoices(monthlyInvoicesData);
       
       // Calculate current balance from transactions
       const balance = transactionsData.length > 0 

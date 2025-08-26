@@ -26,4 +26,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Account Transactions
   getAccountTransactions: () => ipcRenderer.invoke('db:getAccountTransactions'),
   createAccountTransaction: (transaction) => ipcRenderer.invoke('db:createAccountTransaction', transaction),
+
+  // Add these monthly invoice methods
+  getMonthlyInvoices: () => ipcRenderer.invoke('db:getMonthlyInvoices'),
+  getMonthlyInvoice: (month, year) => ipcRenderer.invoke('db:getMonthlyInvoice', month, year),
+  saveMonthlyInvoice: (invoice) => ipcRenderer.invoke('db:saveMonthlyInvoice', invoice),
+  deleteMonthlyInvoice: (id) => ipcRenderer.invoke('db:deleteMonthlyInvoice', id),
 });

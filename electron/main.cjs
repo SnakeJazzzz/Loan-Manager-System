@@ -59,7 +59,7 @@ function createTables() {
       else console.log('Payments table ready');
     });
     
-    // Invoices table
+    // Invoices table (this is the intrest payemnts table)
     db.run(`CREATE TABLE IF NOT EXISTS invoices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       loanId INTEGER NOT NULL,
@@ -72,6 +72,25 @@ function createTables() {
       if (err) console.error('Error creating invoices table:', err);
       else console.log('Invoices table ready');
     });
+
+    // New Monthly Invoce table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS monthlyInvoices (
+        id TEXT PRIMARY KEY,
+        month INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        generatedDate TEXT NOT NULL,
+        lastUpdated TEXT NOT NULL,
+        totalAccrued REAL NOT NULL,
+        totalPaid REAL NOT NULL,
+        remaining REAL NOT NULL,
+        status TEXT NOT NULL,
+        loanDetails TEXT,
+        dailyBreakdown TEXT,
+        paymentsInMonth TEXT,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `); 
     
     // Interest Events table
     db.run(`CREATE TABLE IF NOT EXISTS interestEvents (
@@ -344,4 +363,85 @@ ipcMain.handle('db:createAccountTransaction', async (_, transaction) => {
 // Test handler
 ipcMain.handle('test-connection', async () => {
   return { success: true, message: 'Electron backend connected!' };
+});
+
+// Monthly invoices Handler
+ipcMain.handle('db:getMonthlyInvoices', async () => {
+  return new Promise((resolve, reject) => {
+    db.all('SELECT * FROM monthlyInvoices ORDER BY year DESC, month DESC', (err, rows) => {
+      if (err) reject(err);
+      else {
+        // Parse JSON fields
+        const invoices = rows.map(row => ({
+          ...row,
+          loanDetails: JSON.parse(row.loanDetails || '[]'),
+          dailyBreakdown: JSON.parse(row.dailyBreakdown || '[]'),
+          paymentsInMonth: JSON.parse(row.paymentsInMonth || '[]')
+        }));
+        resolve(invoices);
+      }
+    });
+  });
+});
+
+ipcMain.handle('db:getMonthlyInvoice', async (event, month, year) => {
+  return new Promise((resolve, reject) => {
+    db.get(
+      'SELECT * FROM monthlyInvoices WHERE month = ? AND year = ?',
+      [month, year],
+      (err, row) => {
+        if (err) reject(err);
+        else if (row) {
+          resolve({
+            ...row,
+            loanDetails: JSON.parse(row.loanDetails || '[]'),
+            dailyBreakdown: JSON.parse(row.dailyBreakdown || '[]'),
+            paymentsInMonth: JSON.parse(row.paymentsInMonth || '[]')
+          });
+        } else {
+          resolve(null);
+        }
+      }
+    );
+  });
+});
+
+ipcMain.handle('db:saveMonthlyInvoice', async (event, invoice) => {
+  return new Promise((resolve, reject) => {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO monthlyInvoices 
+      (id, month, year, generatedDate, lastUpdated, totalAccrued, 
+       totalPaid, remaining, status, loanDetails, dailyBreakdown, paymentsInMonth)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(
+      invoice.id,
+      invoice.month,
+      invoice.year,
+      invoice.generatedDate,
+      invoice.lastUpdated,
+      invoice.totalAccrued,
+      invoice.totalPaid,
+      invoice.remaining,
+      invoice.status,
+      JSON.stringify(invoice.loanDetails || []),
+      JSON.stringify(invoice.dailyBreakdown || []),
+      JSON.stringify(invoice.paymentsInMonth || []),
+      function(err) {
+        if (err) reject(err);
+        else resolve({ success: true, id: invoice.id });
+      }
+    );
+    stmt.finalize();
+  });
+});
+
+ipcMain.handle('db:deleteMonthlyInvoice', async (event, id) => {
+  return new Promise((resolve, reject) => {
+    db.run('DELETE FROM monthlyInvoices WHERE id = ?', [id], (err) => {
+      if (err) reject(err);
+      else resolve({ success: true });
+    });
+  });
 });
