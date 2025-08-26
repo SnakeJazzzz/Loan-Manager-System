@@ -133,34 +133,30 @@ export const generateAllHistoricalInvoices = async (loans, payments, db, forceRe
   const endMonth = now.getMonth() + 1;
   const endYear = now.getFullYear();
   
-  console.log(`Generating invoices from ${startMonth}/${startYear} to ${endMonth}/${endYear}`);
+  console.log(`Checking invoices from ${startMonth}/${startYear} to ${endMonth}/${endYear}`);
   
   const invoices = [];
   let currentMonth = startMonth;
   let currentYear = parseInt(startYear);
+  let newInvoicesCount = 0;
+  let skippedCount = 0;
   
   while (currentYear < endYear || (currentYear === endYear && currentMonth <= endMonth)) {
     try {
-      // Check if invoice exists and skip if not forcing regeneration
-      if (!forceRegenerate) {
-        const existing = await db.getMonthlyInvoice(currentMonth, currentYear);
-        if (existing) {
-          console.log(`Invoice for ${currentMonth}/${currentYear} already exists, skipping`);
-          invoices.push(new MonthlyInvoice(existing));
-          currentMonth++;
-          if (currentMonth > 12) {
-            currentMonth = 1;
-            currentYear++;
-          }
-          continue;
-        }
+      // Check if invoice exists
+      const existing = await db.getMonthlyInvoice(currentMonth, currentYear);
+      
+      if (existing && !forceRegenerate) {
+        skippedCount++;
+        invoices.push(new MonthlyInvoice(existing));
+      } else {
+        const invoice = await generateMonthlyInvoice(currentMonth, currentYear, loans, payments, db);
+        invoices.push(invoice);
+        newInvoicesCount++;
       }
       
-      const invoice = await generateMonthlyInvoice(currentMonth, currentYear, loans, payments, db);
-      invoices.push(invoice);
-      
     } catch (error) {
-      console.error(`Failed to generate invoice for ${currentMonth}/${currentYear}:`, error);
+      console.error(`Failed to process invoice for ${currentMonth}/${currentYear}:`, error);
     }
     
     currentMonth++;
@@ -170,8 +166,8 @@ export const generateAllHistoricalInvoices = async (loans, payments, db, forceRe
     }
   }
   
-  console.log(`Generated ${invoices.length} invoices`);
-  return invoices;
+  console.log(`Invoice generation complete: ${newInvoicesCount} new, ${skippedCount} existing`);
+  return invoices.filter(inv => inv !== null); // Return only successfully created invoices
 };
 
 /**

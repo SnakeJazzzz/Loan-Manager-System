@@ -33,6 +33,10 @@ function AppWithDB() {
   const [isLoading, setIsLoading] = useState(true);
   const [monthlyInvoices, setMonthlyInvoices] = useState([]);
   
+  // Invoice generation state flags
+  const [hasGeneratedInvoices, setHasGeneratedInvoices] = useState(false);
+  const [isGeneratingInvoices, setIsGeneratingInvoices] = useState(false);
+  
   // Account balance state
   const [accountTransactions, setAccountTransactions] = useState([]);
   const [currentBalance, setCurrentBalance] = useState(0);
@@ -165,12 +169,13 @@ function AppWithDB() {
   performDailyInterestCalculation();
   }, [isLoading, loans.length, db]); // Dependencies ensure it runs when data is ready
 
-  // Add useEffect to generate invoices when data is loaded
+  // Add useEffect to generate invoices when data is loaded (run only once)
   useEffect(() => {
-    if (!isLoading && loans.length > 0 && db) {
+    // Only run once when data is ready and hasn't been run yet
+    if (!isLoading && loans.length > 0 && db && !hasGeneratedInvoices && !isGeneratingInvoices) {
       generateMissingInvoices();
     }
-  }, [isLoading, loans.length, db]);
+  }, [isLoading, loans.length, db, hasGeneratedInvoices, isGeneratingInvoices]);
 
   const loadAllData = async () => {
     setIsLoading(true);
@@ -205,17 +210,36 @@ function AppWithDB() {
 
   // Add this function to generate missing invoices on load
   const generateMissingInvoices = async () => {
+    // Prevent duplicate generation attempts
+    if (isGeneratingInvoices || hasGeneratedInvoices) {
+      return;
+    }
+    
+    // Check if we have the necessary data
+    if (!loans || loans.length === 0 || !db) {
+      return;
+    }
+    
     try {
+      setIsGeneratingInvoices(true);
       console.log('Checking for missing monthly invoices...');
+      
       const generated = await generateAllHistoricalInvoices(loans, payments, db, false);
-      if (generated.length > 0) {
+      
+      if (generated && generated.length > 0) {
         console.log(`Generated ${generated.length} missing invoices`);
         // Reload monthly invoices
         const updatedInvoices = await db.getMonthlyInvoices();
         setMonthlyInvoices(updatedInvoices);
       }
+      
+      // Mark as completed to prevent re-runs
+      setHasGeneratedInvoices(true);
+      
     } catch (error) {
       console.error('Error generating missing invoices:', error);
+    } finally {
+      setIsGeneratingInvoices(false);
     }
   };
 
@@ -267,18 +291,24 @@ function AppWithDB() {
       const result = await db.saveAccountTransaction(transaction);
       console.log('Transaction save result:', result); // DEBUG
       
+      // Reload data first to get updated loans
       await loadAllData();
-      setShowLoanForm(false);
       
-      // Regenerate affected invoices
+      // Then regenerate affected invoices with updated data
       try {
-        await regenerateAffectedInvoices(loanData.startDate, loans, payments, db);
-        const updatedInvoices = await db.getMonthlyInvoices();
-        setMonthlyInvoices(updatedInvoices);
+        console.log('Regenerating invoices after loan creation...');
+        const regenerated = await regenerateAffectedInvoices(loanData.startDate, loans, payments, db);
+        
+        if (regenerated && regenerated.length > 0) {
+          console.log(`Regenerated ${regenerated.length} invoices after loan creation`);
+          const updatedInvoices = await db.getMonthlyInvoices();
+          setMonthlyInvoices(updatedInvoices);
+        }
       } catch (error) {
         console.error('Error regenerating invoices:', error);
       }
       
+      setShowLoanForm(false);
       alert('Préstamo creado exitosamente');
     } catch (error) {
       console.error('Full error:', error); // DEBUG
@@ -303,6 +333,31 @@ function AppWithDB() {
     }
   };
 
+  // Add manual generation function for testing
+  const manualGenerateInvoices = async () => {
+    if (isGeneratingInvoices) {
+      alert('Ya se están generando facturas, por favor espere...');
+      return;
+    }
+    
+    try {
+      setIsGeneratingInvoices(true);
+      const generated = await generateAllHistoricalInvoices(loans, payments, db, false);
+      
+      if (generated && generated.length > 0) {
+        alert(`Se generaron ${generated.length} facturas mensuales`);
+        const updatedInvoices = await db.getMonthlyInvoices();
+        setMonthlyInvoices(updatedInvoices);
+      } else {
+        alert('Todas las facturas ya están generadas');
+      }
+    } catch (error) {
+      alert('Error generando facturas: ' + error.message);
+    } finally {
+      setIsGeneratingInvoices(false);
+    }
+  };
+
   const editLoan = async (loanData) => {
     const loan = loans.find(l => l.id === editingLoan.id);
     if (!loan) return;
@@ -318,17 +373,22 @@ function AppWithDB() {
       });
       
       await loadAllData();
-      setEditingLoan(null);
       
       // Regenerate affected invoices
       try {
-        await regenerateAffectedInvoices(loanData.startDate, loans, payments, db);
-        const updatedInvoices = await db.getMonthlyInvoices();
-        setMonthlyInvoices(updatedInvoices);
+        console.log('Regenerating invoices after loan edit...');
+        const regenerated = await regenerateAffectedInvoices(loanData.startDate, loans, payments, db);
+        
+        if (regenerated && regenerated.length > 0) {
+          console.log(`Regenerated ${regenerated.length} invoices after loan edit`);
+          const updatedInvoices = await db.getMonthlyInvoices();
+          setMonthlyInvoices(updatedInvoices);
+        }
       } catch (error) {
         console.error('Error regenerating invoices:', error);
       }
       
+      setEditingLoan(null);
       alert('Préstamo actualizado exitosamente');
     } catch (error) {
       alert('Error al actualizar el préstamo: ' + error.message);
@@ -347,9 +407,14 @@ function AppWithDB() {
         // Regenerate affected invoices after deletion
         try {
           const today = new Date().toISOString().split('T')[0];
-          await regenerateAffectedInvoices(today, loans, payments, db);
-          const updatedInvoices = await db.getMonthlyInvoices();
-          setMonthlyInvoices(updatedInvoices);
+          console.log('Regenerating invoices after loan deletion...');
+          const regenerated = await regenerateAffectedInvoices(today, loans, payments, db);
+          
+          if (regenerated && regenerated.length > 0) {
+            console.log(`Regenerated ${regenerated.length} invoices after loan deletion`);
+            const updatedInvoices = await db.getMonthlyInvoices();
+            setMonthlyInvoices(updatedInvoices);
+          }
         } catch (error) {
           console.error('Error regenerating invoices after loan deletion:', error);
         }
@@ -642,11 +707,14 @@ function AppWithDB() {
       // After successful payment processing, regenerate affected invoices
       try {
         console.log('Regenerating affected monthly invoices...');
-        await regenerateAffectedInvoices(paymentData.date, loans, payments, db);
+        const regenerated = await regenerateAffectedInvoices(paymentData.date, loans, payments, db);
         
-        // Reload monthly invoices
-        const updatedInvoices = await db.getMonthlyInvoices();
-        setMonthlyInvoices(updatedInvoices);
+        if (regenerated && regenerated.length > 0) {
+          console.log(`Regenerated ${regenerated.length} invoices`);
+          // Reload monthly invoices
+          const updatedInvoices = await db.getMonthlyInvoices();
+          setMonthlyInvoices(updatedInvoices);
+        }
       } catch (error) {
         console.error('Error regenerating invoices:', error);
       }
