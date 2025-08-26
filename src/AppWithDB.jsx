@@ -14,6 +14,13 @@ import TransactionForm from './components/TransactionForm';
 import { calculateInterest, daysBetween, formatCurrency, generateLoanNumber } from './utils/loanCalculations';
 import useDatabase from './hooks/useDatabase';
 
+// Import monthly invoice generator functions
+import { 
+  generateAllHistoricalInvoices, 
+  regenerateAffectedInvoices,
+  checkAndGeneratePreviousMonth 
+} from './utils/monthlyInvoiceGenerator';
+
 function AppWithDB() {
   // Database hook
   const { isElectron, db } = useDatabase();
@@ -158,6 +165,12 @@ function AppWithDB() {
   performDailyInterestCalculation();
   }, [isLoading, loans.length, db]); // Dependencies ensure it runs when data is ready
 
+  // Add useEffect to generate invoices when data is loaded
+  useEffect(() => {
+    if (!isLoading && loans.length > 0 && db) {
+      generateMissingInvoices();
+    }
+  }, [isLoading, loans.length, db]);
 
   const loadAllData = async () => {
     setIsLoading(true);
@@ -187,6 +200,22 @@ function AppWithDB() {
       console.error('Error loading data:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Add this function to generate missing invoices on load
+  const generateMissingInvoices = async () => {
+    try {
+      console.log('Checking for missing monthly invoices...');
+      const generated = await generateAllHistoricalInvoices(loans, payments, db, false);
+      if (generated.length > 0) {
+        console.log(`Generated ${generated.length} missing invoices`);
+        // Reload monthly invoices
+        const updatedInvoices = await db.getMonthlyInvoices();
+        setMonthlyInvoices(updatedInvoices);
+      }
+    } catch (error) {
+      console.error('Error generating missing invoices:', error);
     }
   };
 
@@ -240,6 +269,16 @@ function AppWithDB() {
       
       await loadAllData();
       setShowLoanForm(false);
+      
+      // Regenerate affected invoices
+      try {
+        await regenerateAffectedInvoices(loanData.startDate, loans, payments, db);
+        const updatedInvoices = await db.getMonthlyInvoices();
+        setMonthlyInvoices(updatedInvoices);
+      } catch (error) {
+        console.error('Error regenerating invoices:', error);
+      }
+      
       alert('Préstamo creado exitosamente');
     } catch (error) {
       console.error('Full error:', error); // DEBUG
@@ -247,6 +286,22 @@ function AppWithDB() {
     }
   };
 
+  // Add button to manually regenerate all invoices (for testing/admin)
+  const forceRegenerateAllInvoices = async () => {
+    if (window.confirm('¿Regenerar todas las facturas mensuales? Esto sobrescribirá las existentes.')) {
+      try {
+        setIsLoading(true);
+        const generated = await generateAllHistoricalInvoices(loans, payments, db, true);
+        alert(`Se regeneraron ${generated.length} facturas mensuales`);
+        const updatedInvoices = await db.getMonthlyInvoices();
+        setMonthlyInvoices(updatedInvoices);
+      } catch (error) {
+        alert('Error regenerando facturas: ' + error.message);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
 
   const editLoan = async (loanData) => {
     const loan = loans.find(l => l.id === editingLoan.id);
@@ -264,6 +319,16 @@ function AppWithDB() {
       
       await loadAllData();
       setEditingLoan(null);
+      
+      // Regenerate affected invoices
+      try {
+        await regenerateAffectedInvoices(loanData.startDate, loans, payments, db);
+        const updatedInvoices = await db.getMonthlyInvoices();
+        setMonthlyInvoices(updatedInvoices);
+      } catch (error) {
+        console.error('Error regenerating invoices:', error);
+      }
+      
       alert('Préstamo actualizado exitosamente');
     } catch (error) {
       alert('Error al actualizar el préstamo: ' + error.message);
@@ -276,8 +341,19 @@ function AppWithDB() {
         await db.deleteLoan(loanId);
         setLoans(loans.filter(loan => loan.id !== loanId));
         setPayments(payments.filter(payment => payment.loanId !== loanId));
-        setInvoices(invoices.filter(invoice => invoice.loanId !== loanId));
+        setInterestPayments(interestPayments.filter(payment => payment.loanId !== loanId));
         setInterestEvents(interestEvents.filter(event => event.loanId !== loanId));
+        
+        // Regenerate affected invoices after deletion
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          await regenerateAffectedInvoices(today, loans, payments, db);
+          const updatedInvoices = await db.getMonthlyInvoices();
+          setMonthlyInvoices(updatedInvoices);
+        } catch (error) {
+          console.error('Error regenerating invoices after loan deletion:', error);
+        }
+        
         alert('Préstamo eliminado exitosamente');
       } catch (error) {
         alert('Error al eliminar el préstamo: ' + error.message);
@@ -562,6 +638,18 @@ function AppWithDB() {
         message += `- Principal pagado: ${formatCurrency(breakdown.principalPaid)}\n`;
         message += `- Estado: ${breakdown.status}\n\n`;
       });
+      
+      // After successful payment processing, regenerate affected invoices
+      try {
+        console.log('Regenerating affected monthly invoices...');
+        await regenerateAffectedInvoices(paymentData.date, loans, payments, db);
+        
+        // Reload monthly invoices
+        const updatedInvoices = await db.getMonthlyInvoices();
+        setMonthlyInvoices(updatedInvoices);
+      } catch (error) {
+        console.error('Error regenerating invoices:', error);
+      }
       
       alert(message);
       
