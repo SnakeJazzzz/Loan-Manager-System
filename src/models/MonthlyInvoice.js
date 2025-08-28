@@ -45,13 +45,23 @@ export class MonthlyInvoice {
      * Calculate invoice status based on payment status
      */
     calculateStatus() {
+      // FIX: If there's nothing to pay (no interest generated), mark as Paid
+      if (this.totalAccrued <= 0.01) {
+        return 'Paid'; // Or you could use 'N/A' if you prefer
+      }
+      
+      // If remaining is essentially zero, it's paid
       if (this.remaining <= 0.01) {
         return 'Paid';
-      } else if (this.totalPaid > 0) {
-        return 'Partial';
-      } else {
-        return 'Pending';
       }
+      
+      // If some payment has been made
+      if (this.totalPaid > 0.01) {
+        return 'Partial';
+      }
+      
+      // Otherwise it's pending
+      return 'Pending';
     }
     
     /**

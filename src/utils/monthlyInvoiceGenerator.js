@@ -41,13 +41,13 @@ export const generateMonthlyInvoice = async (month, year, loans, payments, db) =
         paymentsInMonth: monthlyCalculation.paymentsInMonth
       });
       
-      console.log(`Updated invoice for ${month}/${year}:`, invoice.id);
+      console.log(`Updated invoice for ${month}/${year}: Total: ${invoice.totalAccrued}, Paid: ${invoice.totalPaid}, Status: ${invoice.status}`);
     } else {
       // Create new invoice
       invoice = MonthlyInvoice.fromCalculation(monthlyCalculation);
       invoice.generatedDate = new Date().toISOString().split('T')[0];
       
-      console.log(`Created new invoice for ${month}/${year}:`, invoice.id);
+      console.log(`Created new invoice for ${month}/${year}: Total: ${invoice.totalAccrued}, Paid: ${invoice.totalPaid}, Status: ${invoice.status}`);
     }
     
     // Save to database

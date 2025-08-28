@@ -15,109 +15,153 @@ export const calculateMonthlyInterest = (month, year, loans, payments) => {
   
   // Get all loans that were active during this month
   const activeLoans = loans.filter(loan => {
-    const loanStart = loan.startDate;
-    // Loan is active if it started before or during the month
-    return loanStart <= monthEnd;
+    // FIX: Check if loan was active at any point during the month
+    // A loan is active if it started before or during the month
+    return loan.startDate <= monthEnd;
   });
   
-  // Get ALL payments that have interest paid during this month
-  // This is the key fix - we need to look at interestPaid field
-  const paymentsInMonth = payments.filter(payment => 
-    payment.date >= monthStart && payment.date <= monthEnd
-  );
-  
   let totalAccrued = 0;
-  let totalPaid = 0; // This will track interest paid
+  let totalPaid = 0;
   const loanBreakdown = [];
   const dailyBreakdown = [];
   
   // Calculate interest for each active loan
   for (const loan of activeLoans) {
-    const loanPayments = payments.filter(p => p.loanId === loan.id).sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Get all payments for this loan, sorted by date
+    const loanPayments = payments.filter(p => p.loanId === loan.id)
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
     
-    // Find the starting balance for this month
-    let startingPrincipal = loan.originalPrincipal;
-    let lastCalculationDate = loan.startDate;
+    // Determine the period for interest calculation in this month
+    const interestStartDate = loan.startDate > monthStart ? loan.startDate : monthStart;
+    const interestEndDate = monthEnd;
     
-    // Apply all payments made before this month
+    // Skip if loan starts after month ends
+    if (interestStartDate > interestEndDate) {
+      continue;
+    }
+    
+    // Find the principal balance at the start of the interest period
+    let currentPrincipal = loan.originalPrincipal;
+    
+    // Apply all payments made before the interest calculation period
     for (const payment of loanPayments) {
-      if (payment.date < monthStart) {
-        startingPrincipal -= payment.principalPaid;
-        lastCalculationDate = payment.date;
+      if (payment.date < interestStartDate) {
+        currentPrincipal -= (payment.principalPaid || 0);
       }
     }
     
-    if (startingPrincipal <= 0) continue; // Loan was already paid off
+    // If loan is already paid off, skip
+    if (currentPrincipal <= 0) {
+      continue;
+    }
     
-    // Calculate day-by-day for this month
-    let currentPrincipal = startingPrincipal;
+    // Calculate interest day by day for this month
     let monthlyInterestForLoan = 0;
-    const currentDate = new Date(Math.max(new Date(lastCalculationDate), new Date(monthStart)));
-    const endDate = new Date(monthEnd);
+    let daysActive = 0;
     
-    while (currentDate <= endDate && currentPrincipal > 0) {
-      const dayStr = currentDate.toISOString().split('T')[0];
-      
-      // Check if there's a payment on this day
-      const paymentOnThisDay = paymentsInMonth.find(p => p.loanId === loan.id && p.date === dayStr);
-      
-      if (paymentOnThisDay) {
-        // Calculate interest up to this day
-        if (currentPrincipal > 0) {
-          const dayInterest = calculateInterest(currentPrincipal, loan.interestRate, 1);
-          monthlyInterestForLoan += dayInterest;
+    // Get payments that happened during this month
+    const paymentsThisMonth = loanPayments.filter(p => 
+      p.date >= monthStart && p.date <= monthEnd
+    );
+    
+    // Calculate from start date to end date or first payment
+    let calcStartDate = interestStartDate;
+    
+    // If there are payments this month, calculate in segments
+    if (paymentsThisMonth.length > 0) {
+      for (const payment of paymentsThisMonth) {
+        // Calculate days from last calculation to this payment
+        const daysInSegment = daysBetween(calcStartDate, payment.date);
+        
+        if (daysInSegment > 0 && currentPrincipal > 0) {
+          const segmentInterest = calculateInterest(currentPrincipal, loan.interestRate, daysInSegment);
+          monthlyInterestForLoan += segmentInterest;
+          daysActive += daysInSegment;
           
-          dailyBreakdown.push({
-            date: dayStr,
-            loanId: loan.id,
-            loanNumber: loan.loanNumber,
-            principal: currentPrincipal,
-            dailyInterest: dayInterest,
-            payment: paymentOnThisDay.totalPaid,
-            interestPaid: paymentOnThisDay.interestPaid || 0  // Track interest paid
-          });
+          // Add daily breakdown for this segment
+          for (let i = 0; i < daysInSegment; i++) {
+            const segmentDate = new Date(calcStartDate);
+            segmentDate.setDate(segmentDate.getDate() + i);
+            const dayStr = segmentDate.toISOString().split('T')[0];
+            const dayInterest = calculateInterest(currentPrincipal, loan.interestRate, 1);
+            
+            dailyBreakdown.push({
+              date: dayStr,
+              loanId: loan.id,
+              loanNumber: loan.loanNumber,
+              principal: currentPrincipal,
+              dailyInterest: dayInterest,
+              payment: dayStr === payment.date ? payment.totalPaid : 0,
+              interestPaid: dayStr === payment.date ? (payment.interestPaid || 0) : 0
+            });
+          }
         }
         
-        // Apply the payment
-        currentPrincipal -= paymentOnThisDay.principalPaid;
+        // Update principal after payment
+        currentPrincipal -= (payment.principalPaid || 0);
+        calcStartDate = payment.date;
         
-        // FIX: Add the interest paid from this payment
-        if (paymentOnThisDay.interestPaid) {
-          totalPaid += paymentOnThisDay.interestPaid;
-        }
-      } else {
-        // No payment, just accrue interest
-        if (currentPrincipal > 0) {
-          const dayInterest = calculateInterest(currentPrincipal, loan.interestRate, 1);
-          monthlyInterestForLoan += dayInterest;
+        // Move to next day for calculation
+        const nextDay = new Date(payment.date);
+        nextDay.setDate(nextDay.getDate() + 1);
+        calcStartDate = nextDay.toISOString().split('T')[0];
+      }
+    }
+    
+    // Calculate remaining days after last payment (or full month if no payments)
+    if (calcStartDate <= interestEndDate && currentPrincipal > 0) {
+      const remainingDays = daysBetween(calcStartDate, interestEndDate) + 1;
+      
+      if (remainingDays > 0) {
+        const remainingInterest = calculateInterest(currentPrincipal, loan.interestRate, remainingDays);
+        monthlyInterestForLoan += remainingInterest;
+        daysActive += remainingDays;
+        
+        // Add daily breakdown for remaining days
+        for (let i = 0; i < remainingDays; i++) {
+          const segmentDate = new Date(calcStartDate);
+          segmentDate.setDate(segmentDate.getDate() + i);
+          const dayStr = segmentDate.toISOString().split('T')[0];
           
-          dailyBreakdown.push({
-            date: dayStr,
-            loanId: loan.id,
-            loanNumber: loan.loanNumber,
-            principal: currentPrincipal,
-            dailyInterest: dayInterest,
-            payment: 0,
-            interestPaid: 0
-          });
+          if (dayStr <= interestEndDate) {
+            const dayInterest = calculateInterest(currentPrincipal, loan.interestRate, 1);
+            
+            dailyBreakdown.push({
+              date: dayStr,
+              loanId: loan.id,
+              loanNumber: loan.loanNumber,
+              principal: currentPrincipal,
+              dailyInterest: dayInterest,
+              payment: 0,
+              interestPaid: 0
+            });
+          }
         }
       }
-      
-      currentDate.setDate(currentDate.getDate() + 1);
     }
     
     totalAccrued += monthlyInterestForLoan;
     
-    loanBreakdown.push({
-      loanId: loan.id,
-      loanNumber: loan.loanNumber,
-      debtorName: loan.debtorName,
-      totalInterest: monthlyInterestForLoan,
-      daysActive: Math.ceil((Math.min(new Date(monthEnd), new Date()) - Math.max(new Date(monthStart), new Date(loan.startDate))) / (1000 * 60 * 60 * 24)) + 1,
-      averageBalance: startingPrincipal, // Simplified - could be more accurate
-      interestRate: loan.interestRate
-    });
+    if (monthlyInterestForLoan > 0 || paymentsThisMonth.length > 0) {
+      loanBreakdown.push({
+        loanId: loan.id,
+        loanNumber: loan.loanNumber || `#${loan.id}`,
+        debtorName: loan.debtorName,
+        totalInterest: monthlyInterestForLoan,
+        daysActive: daysActive,
+        averageBalance: currentPrincipal,
+        interestRate: loan.interestRate
+      });
+    }
   }
+  
+  // Get all payments in this month to track interest paid
+  const allPaymentsThisMonth = payments.filter(p => 
+    p.date >= monthStart && p.date <= monthEnd
+  );
+  
+  // Sum up all interest paid in this month
+  totalPaid = allPaymentsThisMonth.reduce((sum, p) => sum + (p.interestPaid || 0), 0);
   
   // Calculate remaining (unpaid interest)
   const remaining = totalAccrued - totalPaid;
@@ -130,7 +174,7 @@ export const calculateMonthlyInterest = (month, year, loans, payments) => {
     remaining: Math.round(remaining * 100) / 100,
     loanBreakdown,
     dailyBreakdown,
-    paymentsInMonth
+    paymentsInMonth: allPaymentsThisMonth
   };
 };
 
