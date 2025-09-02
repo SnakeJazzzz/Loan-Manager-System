@@ -133,37 +133,82 @@ const PaymentForm = ({ loans, payments, onSubmit, onCancel }) => {
     });
   };
   
-  // Calculate how the payment will be applied
+  // Calculate how the payment will be applied - FIXED TO MATCH PAYMENT PROCESSING LOGIC
   const getPaymentAllocation = () => {
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
       return null;
     }
     
     const paymentAmount = parseFloat(formData.amount);
-    let remaining = paymentAmount;
+    
+    // CRITICAL FIX: First calculate total interest across all loans (like in processPayment)
+    const totalInterestAcrossAllLoans = interestPreview.totalInterest;
+    
+    // Step 1: Apply payment to total interest first
+    const totalInterestPaid = Math.min(paymentAmount, totalInterestAcrossAllLoans);
+    const remainingForPrincipal = paymentAmount - totalInterestPaid;
+    
     const allocation = [];
     
+    // Step 2: Distribute interest payment proportionally to each loan
+    let interestLeftToDistribute = totalInterestPaid;
+    
     for (const loan of interestPreview.breakdown) {
-      if (remaining <= 0) break;
+      if (loan.interest <= 0) continue;
       
-      const totalForLoan = loan.interest + loan.principal;
-      const paymentForLoan = Math.min(remaining, totalForLoan);
-      
-      let interestPaid = Math.min(paymentForLoan, loan.interest);
-      let principalPaid = paymentForLoan - interestPaid;
+      // Calculate this loan's share of the interest payment
+      let interestPaidForThisLoan = 0;
+      if (interestLeftToDistribute > 0) {
+        interestPaidForThisLoan = Math.min(loan.interest, interestLeftToDistribute);
+        interestLeftToDistribute -= interestPaidForThisLoan;
+      }
       
       allocation.push({
         loanNumber: loan.loanNumber,
         debtorName: loan.debtorName,
-        interestPaid,
-        principalPaid,
-        total: paymentForLoan
+        interestPaid: interestPaidForThisLoan,
+        principalPaid: 0, // Will be updated if there's remaining payment
+        total: interestPaidForThisLoan
       });
-      
-      remaining -= paymentForLoan;
     }
     
-    return allocation;
+    // Step 3: Apply remaining payment to principal (sequential by loan order)
+    if (remainingForPrincipal > 0) {
+      let principalLeftToDistribute = remainingForPrincipal;
+      
+      for (let i = 0; i < interestPreview.breakdown.length; i++) {
+        if (principalLeftToDistribute <= 0) break;
+        
+        const loan = interestPreview.breakdown[i];
+        
+        // Skip if loan has no remaining principal
+        if (loan.principal <= 0) continue;
+        
+        // Calculate principal payment for this loan
+        const principalPaid = Math.min(principalLeftToDistribute, loan.principal);
+        principalLeftToDistribute -= principalPaid;
+        
+        // Find existing allocation record or create new one
+        let allocRecord = allocation.find(a => a.loanNumber === loan.loanNumber);
+        
+        if (allocRecord) {
+          // Update existing record with principal payment
+          allocRecord.principalPaid = principalPaid;
+          allocRecord.total += principalPaid;
+        } else {
+          // Create new record for principal-only payment
+          allocation.push({
+            loanNumber: loan.loanNumber,
+            debtorName: loan.debtorName,
+            interestPaid: 0,
+            principalPaid: principalPaid,
+            total: principalPaid
+          });
+        }
+      }
+    }
+    
+    return allocation.filter(a => a.total > 0); // Only show loans with payments
   };
   
   const paymentAllocation = getPaymentAllocation();
@@ -298,14 +343,33 @@ const PaymentForm = ({ loans, payments, onSubmit, onCancel }) => {
                       </span>
                     </div>
                   ))}
-                  <div className="border-t border-green-300 pt-1 mt-2 font-semibold text-green-800">
-                    <div className="flex justify-between">
-                      <span>Total a Pagar:</span>
-                      <span>{formatCurrency(parseFloat(formData.amount))}</span>
+                  <div className="border-t border-green-300 pt-1 mt-2">
+                    {/* Summary of total interest and principal paid */}
+                    <div className="bg-green-100 p-2 rounded mb-2">
+                      <div className="text-xs font-semibold text-green-800 mb-1">Resumen del Pago:</div>
+                      <div className="flex justify-between text-xs text-green-700">
+                        <span>Total Interés Pagado:</span>
+                        <span className="font-medium">
+                          {formatCurrency(paymentAllocation.reduce((sum, alloc) => sum + alloc.interestPaid, 0))}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs text-green-700">
+                        <span>Total Principal Pagado:</span>
+                        <span className="font-medium">
+                          {formatCurrency(paymentAllocation.reduce((sum, alloc) => sum + alloc.principalPaid, 0))}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Deuda Restante:</span>
-                      <span>{formatCurrency(Math.max(0, interestPreview.totalDebt - parseFloat(formData.amount)))}</span>
+                    
+                    <div className="font-semibold text-green-800">
+                      <div className="flex justify-between">
+                        <span>Total a Pagar:</span>
+                        <span>{formatCurrency(parseFloat(formData.amount))}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Deuda Restante:</span>
+                        <span>{formatCurrency(Math.max(0, interestPreview.totalDebt - parseFloat(formData.amount)))}</span>
+                      </div>
                     </div>
                   </div>
                 </div>

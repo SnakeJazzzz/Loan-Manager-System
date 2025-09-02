@@ -13,7 +13,7 @@ import MonthlyInvoices from './pages/MonthlyInvoices';
 import AccountHistory from './pages/AccountHistory';
 import TransactionForm from './components/TransactionForm';
 
-import { calculateInterest, daysBetween, formatCurrency, generateLoanNumber } from './utils/loanCalculations';
+import { calculateInterest, daysBetween, formatCurrency, generateLoanNumber, formatDate } from './utils/loanCalculations';
 import useDatabase from './hooks/useDatabase';
 
 // Import monthly invoice generator functions
@@ -267,6 +267,7 @@ function AppWithDB() {
       originalPrincipal: loanData.amount,
       remainingPrincipal: loanData.amount,
       accruedInterest: 0,
+      lastInterestAccrual: loanData.startDate,  // Initialize with loan start date
       status: 'Open',
       createdAt: new Date().toISOString(),
       destiny: loanData.destiny || '',
@@ -585,59 +586,120 @@ function AppWithDB() {
       return;
     }
 
-    // Process payment across loans with correct interest
+    // CRITICAL FIX: Calculate TOTAL interest from ALL loans first
+    const totalInterestAcrossAllLoans = loansWithCorrectInterest.reduce((sum, loan) => {
+      return sum + loan.accruedInterest;
+    }, 0);
+    
+    console.log(`Total interest across all loans: ${totalInterestAcrossAllLoans.toFixed(2)}`);
+    
+    // Process payment with pooled interest approach
     let remainingPayment = parseFloat(paymentData.amount);
     const paymentsToProcess = [];
     let paymentBreakdown = [];
-
+    
+    // Step 1: Apply payment to TOTAL interest first (across all loans)
+    let totalInterestPaid = Math.min(remainingPayment, totalInterestAcrossAllLoans);
+    remainingPayment -= totalInterestPaid;
+    
+    console.log(`Payment amount: ${paymentData.amount}, Interest to pay: ${totalInterestPaid.toFixed(2)}, Remaining for principal: ${remainingPayment.toFixed(2)}`);
+    
+    // Step 2: Distribute the interest payment proportionally to each loan
+    let interestLeftToDistribute = totalInterestPaid;
+    
     for (const loan of loansWithCorrectInterest) {
-      if (remainingPayment <= 0) break;
-
-      // Calculate total owed for this loan (with CORRECT interest)
-      const totalOwed = loan.remainingPrincipal + loan.accruedInterest;
+      if (loan.accruedInterest <= 0) continue;
       
-      if (totalOwed <= 0) continue;
-
-      const paymentForThisLoan = Math.min(remainingPayment, totalOwed);
-      
-      // Apply payment: interest first, then principal
-      let interestPaid = 0;
-      let principalPaid = 0;
-      
-      if (loan.accruedInterest > 0) {
-        interestPaid = Math.min(paymentForThisLoan, loan.accruedInterest);
-        principalPaid = paymentForThisLoan - interestPaid;
-      } else {
-        principalPaid = paymentForThisLoan;
+      // Calculate this loan's share of the interest payment
+      let interestPaidForThisLoan = 0;
+      if (interestLeftToDistribute > 0) {
+        interestPaidForThisLoan = Math.min(loan.accruedInterest, interestLeftToDistribute);
+        interestLeftToDistribute -= interestPaidForThisLoan;
       }
-
-      // Create payment record
-      const paymentId = payments.length + paymentsToProcess.length + 1;
       
+      // Store the interest payment for this loan (no principal yet)
       paymentsToProcess.push({
         payment: {
-          id: paymentId,
+          id: payments.length + paymentsToProcess.length + 1,
           loanId: loan.id,
           date: paymentData.date,
-          interestPaid,
-          principalPaid,
-          totalPaid: paymentForThisLoan
+          interestPaid: interestPaidForThisLoan,
+          principalPaid: 0,  // Will be updated if there's remaining payment
+          totalPaid: interestPaidForThisLoan  // Will be updated if principal is paid
         },
         loan: loan,
-        newRemainingPrincipal: loan.remainingPrincipal - principalPaid,
-        newAccruedInterest: loan.accruedInterest - interestPaid  // Will be 0 if fully paid
+        newRemainingPrincipal: loan.remainingPrincipal,  // No principal paid yet
+        newAccruedInterest: loan.accruedInterest - interestPaidForThisLoan
       });
-
+      
       paymentBreakdown.push({
         loanNumber: loan.loanNumber || `#${loan.id}`,
-        amount: paymentForThisLoan,
-        interestPaid,
-        principalPaid,
-        status: (loan.remainingPrincipal - principalPaid) <= 0.01 && 
-                (loan.accruedInterest - interestPaid) <= 0.01 ? 'Pagado' : 'Parcial'
+        amount: interestPaidForThisLoan,  // Will be updated if principal is paid
+        interestPaid: interestPaidForThisLoan,
+        principalPaid: 0,  // Will be updated if principal is paid
+        status: 'Parcial'  // Will be updated based on final state
       });
-
-      remainingPayment -= paymentForThisLoan;
+    }
+    
+    // Step 3: Apply remaining payment to principal (sequential by loan ID)
+    if (remainingPayment > 0) {
+      for (let i = 0; i < loansWithCorrectInterest.length; i++) {
+        if (remainingPayment <= 0) break;
+        
+        const loan = loansWithCorrectInterest[i];
+        
+        // Skip if loan has no remaining principal
+        if (loan.remainingPrincipal <= 0) continue;
+        
+        // Calculate principal payment for this loan
+        const principalPaid = Math.min(remainingPayment, loan.remainingPrincipal);
+        remainingPayment -= principalPaid;
+        
+        // Find or create payment record for this loan
+        let paymentRecord = paymentsToProcess.find(p => p.loan.id === loan.id);
+        let breakdownRecord = paymentBreakdown.find(b => b.loanNumber === (loan.loanNumber || `#${loan.id}`));
+        
+        if (paymentRecord) {
+          // Update existing record with principal payment
+          paymentRecord.payment.principalPaid = principalPaid;
+          paymentRecord.payment.totalPaid += principalPaid;
+          paymentRecord.newRemainingPrincipal = loan.remainingPrincipal - principalPaid;
+          
+          breakdownRecord.amount += principalPaid;
+          breakdownRecord.principalPaid = principalPaid;
+        } else {
+          // Create new record for principal-only payment
+          paymentsToProcess.push({
+            payment: {
+              id: payments.length + paymentsToProcess.length + 1,
+              loanId: loan.id,
+              date: paymentData.date,
+              interestPaid: 0,
+              principalPaid: principalPaid,
+              totalPaid: principalPaid
+            },
+            loan: loan,
+            newRemainingPrincipal: loan.remainingPrincipal - principalPaid,
+            newAccruedInterest: 0  // No interest for this loan
+          });
+          
+          paymentBreakdown.push({
+            loanNumber: loan.loanNumber || `#${loan.id}`,
+            amount: principalPaid,
+            interestPaid: 0,
+            principalPaid: principalPaid,
+            status: 'Parcial'
+          });
+        }
+        
+        // Update status in breakdown
+        const updatedRecord = paymentsToProcess.find(p => p.loan.id === loan.id);
+        const updatedBreakdown = paymentBreakdown.find(b => b.loanNumber === (loan.loanNumber || `#${loan.id}`));
+        if (updatedRecord && updatedBreakdown) {
+          updatedBreakdown.status = (updatedRecord.newRemainingPrincipal <= 0.01 && 
+                                     updatedRecord.newAccruedInterest <= 0.01) ? 'Pagado' : 'Parcial';
+        }
+      }
     }
 
     if (paymentsToProcess.length === 0) {
