@@ -179,6 +179,33 @@ function AppWithDB() {
     }
   }, [isLoading, loans.length, db, hasGeneratedInvoices, isGeneratingInvoices]);
 
+
+
+
+
+//Testing
+  useEffect(() => {
+  console.log('=== DEBUGGING calculateInterest ===');
+  const testResult = calculateInterest(450000, 15, 3);
+  console.log(`calculateInterest(450000, 15, 3) = ${testResult}`);
+  console.log(`Expected: 369.86`);
+  console.log(`Getting: ${testResult}`);
+  
+  // Test the calculation manually
+  const manual = 450000 *( 0.15 / 365 )* 3;
+  console.log(`Manual calc: 450000 * 0.15 / 365 * 3 = ${manual}`);
+  
+  // Test calculateDailyRate
+  const dailyRate = 15 / 365 / 100;
+  console.log(`Daily rate: 15 / 365 / 100 = ${dailyRate}`);
+  console.log(`450000 * ${dailyRate} * 3 = ${450000 * dailyRate * 3}`);
+  }, []);
+
+
+
+
+
+
   const loadAllData = async () => {
     setIsLoading(true);
     try {
